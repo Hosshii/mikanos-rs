@@ -2,15 +2,16 @@
 
 set -eux
 
-DISK_IMG=./dev/disk.img
-MNT_POINT=./dev/mnt
-EFI_FILE=./target/x86_64-unknown-uefi/release/mikanos.efi
+SCRIPT_DIR=$(cd $(dirname $0); pwd)
+DISK_IMG=${SCRIPT_DIR}/disk.img
+MNT_POINT=${SCRIPT_DIR}/mnt
+EFI_FILE=${SCRIPT_DIR}/../../target/x86_64-unknown-uefi/release/bootloader.efi
 
 
 CUR_DIR=$(pwd)
 
-OVMF_CODE=./dev/OVMF_CODE.fd
-OVMF_VARS=./dev/OVMF_VARS.fd
+OVMF_CODE=${SCRIPT_DIR}/OVMF_CODE.fd
+OVMF_VARS=${SCRIPT_DIR}/OVMF_VARS.fd
 
 cargo build --release
 

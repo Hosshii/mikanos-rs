@@ -3,11 +3,9 @@
 
 mod uefi;
 
-use core::panic::PanicInfo;
+use core::{hint::black_box, panic::PanicInfo};
 
-use uefi::{Handle, Status, SystemTable};
-
-use crate::uefi::CStr16;
+use uefi::{CStr16, Handle, Status, SystemTable};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -24,7 +22,9 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: SystemTable)
 
     unsafe { (stdout.output_string)(stdout, hello.as_ptr()) };
 
-    loop {}
+    for i in 0..10000000000i64 {
+        black_box(i);
+    }
 
     Status::Success
 }
