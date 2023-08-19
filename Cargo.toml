@@ -1,7 +1,10 @@
 [workspace]
 
 members = [
-    "bootloader"
+    "bootloader",
+    "kernel",
+    "uefi",
+    "macros"
 ]
 
 resolver = "2"

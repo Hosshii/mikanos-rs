@@ -1,0 +1,47 @@
+[env]
+DEV_DIR = "${CARGO_MAKE_WORKING_DIRECTORY}/dev"
+DISK_IMG = "${DEV_DIR}/disk.img"
+OVMF_CODE = "${DEV_DIR}/OVMF_CODE.fd"
+OVMF_VARS = "${DEV_DIR}/OVMF_VARS.fd"
+
+[tasks.make-image.env]
+MNT_POINT = "${DEV_DIR}/mnt"
+BOOTLOADER_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-uefi/debug/bootloader.efi"
+KERNEL_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-none-elf/debug/kernel"
+
+[tasks.make-image]
+description = "make disk image"
+workspace = false
+dependencies = [
+    { name = "build", path = "kernel" },
+    { name = "build", path = "bootloader" }
+]
+
+script = '''
+set -eux
+qemu-img create -f raw $DISK_IMG 200M
+mkfs.fat -n 'MIKAN OS' -s 2 -f 2 -R 32 -F 32 $DISK_IMG
+
+sudo mount -o loop $DISK_IMG $MNT_POINT
+sudo mkdir -p $MNT_POINT/EFI/BOOT
+sudo cp $BOOTLOADER_FILE $MNT_POINT/EFI/BOOT/BOOTX64.EFI
+sudo cp $KERNEL_FILE $MNT_POINT/kernel.elf
+
+sudo umount $MNT_POINT
+'''
+
+[tasks.run-qemu]
+description = "run qemu"
+workspace = false
+dependencies = [
+    "make-image"
+]
+
+script = '''
+set -eux
+qemu-system-x86_64 \
+    -drive if=pflash,file=$OVMF_CODE \
+    -drive if=pflash,file=$OVMF_VARS \
+    -hda $DISK_IMG \
+    -monitor stdio
+'''
