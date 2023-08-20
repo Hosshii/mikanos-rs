@@ -9,9 +9,14 @@ pub struct Elf<'a> {
 }
 
 impl<'a> Elf<'a> {
+    /// # Safety
+    /// buf は有効なポインタかつlenは有効な長さを表している必要がある
     pub unsafe fn from_raw_parts(buf: *const u8, len: usize) -> Result<Elf<'a>> {
         let elf_header_size = mem::size_of::<ElfHeader>();
-        let header = ElfHeader::from_raw_parts(buf)?;
+        if len < elf_header_size {
+            return Err(Error::ElfParse("too small buffer"));
+        }
+        let header = unsafe { ElfHeader::from_raw_parts(buf)? };
 
         if len - elf_header_size < header.ph_num as usize * mem::size_of::<Elf64ProgramHeader>() {
             return Err(Error::ElfParse("too small buffer"));
@@ -47,13 +52,13 @@ impl<'a> Elf<'a> {
     }
 }
 
-type ELF64Addr = usize;
-type ELF64Off = u64;
-type ELF64Half = u16;
-type ELF64Word = u32;
-type ELF64Sword = i32;
-type ELF64Xword = u64;
-type ELF64Sxword = i64;
+pub type ELF64Addr = usize;
+pub type ELF64Off = u64;
+pub type ELF64Half = u16;
+pub type ELF64Word = u32;
+pub type ELF64Sword = i32;
+pub type ELF64Xword = u64;
+pub type ELF64Sxword = i64;
 
 const EI_NIDENT: usize = 16;
 const ELF_MAGIC_SIGNATURE: &[u8; 4] = b"\x7fELF";
@@ -94,6 +99,8 @@ impl ElfHeader {
         unsafe { Self::from_raw_parts(buffer.as_ptr()) }
     }
 
+    /// # Safety
+    /// ptrは有効なポインタで[ElfHeader]を指し示している必要がある
     pub unsafe fn from_raw_parts<'a>(ptr: *const u8) -> Result<&'a ElfHeader> {
         let ptr = ptr as *const ElfHeader;
         let header = unsafe { &*ptr };
@@ -123,7 +130,9 @@ pub struct Elf64ProgramHeader {
 }
 
 impl Elf64ProgramHeader {
-    unsafe fn from_buf(buffer: &[u8]) -> &Elf64ProgramHeader {
+    /// # Safety
+    /// bufferは[Elf64ProgramHeader]のデータを指し示している必要がある
+    pub unsafe fn from_buf(buffer: &[u8]) -> &Elf64ProgramHeader {
         let ptr = buffer.as_ptr() as *const Elf64ProgramHeader;
         &*ptr
     }

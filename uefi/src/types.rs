@@ -85,6 +85,12 @@ impl CStr16 {
         Ok(unsafe { Self::from_u16_unchecked(buf) })
     }
 
+    /// # Safety
+    /// `v`は
+    /// - validなucs2
+    /// - null terminated
+    /// - 途中にnullがない
+    /// を満たす必要がある
     pub unsafe fn from_u16_unchecked(v: &[u16]) -> &Self {
         unsafe { &*(v as *const [u16] as *const CStr16) }
     }

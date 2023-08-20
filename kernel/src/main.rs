@@ -22,3 +22,11 @@ fn halt() -> ! {
         }
     }
 }
+#[cfg(target_arch = "aarch64")]
+fn halt() -> ! {
+    loop {
+        unsafe {
+            asm! {"wfi"}
+        }
+    }
+}

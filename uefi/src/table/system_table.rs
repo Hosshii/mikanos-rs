@@ -1,6 +1,6 @@
 use crate::{
     protocol::console::{SimpleTextInputProtocol, SimpleTextOutputProtocol},
-    types::{CStr16, Char16, Handle, Status, Uint32, Uintn},
+    types::{Char16, Handle, Status, Uint32, Uintn},
 };
 
 use super::{boot_services::BootServices, header::TableHeader};

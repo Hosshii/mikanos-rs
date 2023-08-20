@@ -1,18 +1,13 @@
 #![no_std]
 #![no_main]
 
-mod elf;
-mod error;
-mod log;
-
-use crate::{
-    elf::Elf,
-    error::{Error, ToRusult},
+use bootloader::{
+    elf::{Elf, PT_LOAD},
+    error::{Error, Result, ToRusult},
+    info, log,
 };
 
 use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr};
-use elf::PT_LOAD;
-use error::Result;
 use macros::cstr16;
 use uefi::{
     protocol::{
@@ -44,14 +39,17 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, mut system_table: SystemTa
     match main_impl(image_handle, &mut system_table) {
         Ok(_) => Status::SUCCRSS,
         Err(e) => {
-            writeln!(system_table.stdout(), "kernel error: {}", e);
+            writeln!(system_table.stdout(), "kernel error: {}", e).unwrap();
             halt();
         }
     }
 }
 
 fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()> {
-    system_table.clear_screen();
+    system_table
+        .clear_screen()
+        .to_result()
+        .map_err(|_| Error::Custom("failed to clear screen"))?;
     let stdout = system_table.stdout();
     writeln!(stdout, "hello world")?;
 
@@ -236,6 +234,15 @@ fn halt() -> ! {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+fn halt() -> ! {
+    loop {
+        unsafe {
+            asm! {"wfi"}
+        }
+    }
+}
+
 struct MemoryMap {
     buffer_size: Uintn,
     buffer: *mut Void,
@@ -245,7 +252,7 @@ struct MemoryMap {
     descriptor_version: Uint32,
 }
 
-fn get_memory_map(system_table: &mut SystemTable, map: &mut MemoryMap) -> Result<()> {
+fn get_memory_map(system_table: &SystemTable, map: &mut MemoryMap) -> Result<()> {
     if map.buffer.is_null() {
         return Err(Error::Custom("buffer is too small"));
     }
