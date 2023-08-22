@@ -6,9 +6,9 @@ use bootloader::{
     error::{Error, Result, ToRusult},
     info, log,
 };
-use common::KernelArg;
+use kernel::{KernelArg, KernelMain};
 
-use core::{arch::asm, fmt::Write, hint, mem, panic::PanicInfo, ptr, slice};
+use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr, slice};
 use macros::cstr16;
 use uefi::{
     protocol::{
@@ -82,6 +82,29 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
         (frame_buffer_base + frame_buffer_size as u64) as *const u8,
         frame_buffer_size
     );
+
+    let pixel_format = match &info.pixel_format {
+        uefi::protocol::console::PixelFormat::PixelBlueGreenRedReserved8BitPerColor => {
+            kernel::PixelFormat::PixelBGRResv8BitPerColor
+        }
+        uefi::protocol::console::PixelFormat::PixelRedGreenBlueReserved8BitPerColor => {
+            kernel::PixelFormat::PixelRGBResv8BitPerColor
+        }
+        f => {
+            info!("unsupported pixel format: {}", f);
+            return Err(Error::Custom("unsupported pixel format"));
+        }
+    };
+    let kernel_arg = unsafe {
+        KernelArg::new(
+            frame_buffer_base as *mut u8,
+            mode.frame_buffer_size,
+            info.pixel_per_scan_line,
+            info.horizontal_resolution,
+            info.vertical_resolution,
+            pixel_format,
+        )
+    };
 
     const MEMORY_MAP_SIZE: usize = 4096 * 4;
     let mut memorymap_buf = [0u8; MEMORY_MAP_SIZE];
@@ -195,14 +218,9 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
 
     let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
 
-    let kernel_main: extern "sysv64" fn(arg: &mut KernelArg) -> ! =
-        unsafe { mem::transmute(entry_addr) };
-    let mut arg = KernelArg {
-        frame_buffer_base,
-        frame_buffer_size,
-    };
+    let kernel_main: KernelMain = unsafe { mem::transmute(entry_addr) };
 
-    kernel_main(&mut arg);
+    kernel_main(kernel_arg);
 }
 
 fn open_root_dir(image_handle: Handle, boot_services: &BootServices) -> Result<*mut FileProtocol> {

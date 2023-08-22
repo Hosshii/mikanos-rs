@@ -3,7 +3,10 @@
 
 use core::{arch::asm, panic::PanicInfo};
 
-use common::KernelArg;
+use kernel::{
+    console::{FrameBufferInfo, Graphic, PixelColor, Position},
+    KernelArg,
+};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -12,11 +15,24 @@ fn panic(_info: &PanicInfo) -> ! {
 
 // entry point
 #[no_mangle]
-pub extern "C" fn kernel_main(arg: &mut KernelArg) -> ! {
-    let frame_buffer = arg.frame_buffer_base as *mut u8;
-    for offset in 0..arg.frame_buffer_size {
-        unsafe { frame_buffer.add(offset).write_volatile(offset as u8) }
+pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
+    let frame_buffer_info = FrameBufferInfo::from(arg);
+    let mut graphic = Graphic::new(frame_buffer_info);
+
+    for x in 0..graphic.info().horizontal_resolution() {
+        for y in 0..graphic.info().vertical_resolution() {
+            let pos = Position::new(x as i32, y as i32);
+            graphic.write_pixel(pos, PixelColor::WHITE);
+        }
     }
+
+    for x in 0..200 {
+        for y in 0..100 {
+            let pos = Position::new(x as i32, y as i32);
+            graphic.write_pixel(pos, PixelColor::GREEN);
+        }
+    }
+
     halt()
 }
 
