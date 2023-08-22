@@ -55,7 +55,13 @@ pub type OpenProtocol = extern "efiapi" fn(
 pub type CloseProtocol = UnusedPtr;
 pub type OpenProtocolInformation = UnusedPtr;
 pub type ProtocolsPerHandle = UnusedPtr;
-pub type LocateHandleBuffer = UnusedPtr;
+pub type LocateHandleBuffer = extern "efiapi" fn(
+    search_type: LocateSearchType,
+    protocol: *const Guid,
+    search_key: *const Void,
+    no_handles: *mut Uintn,
+    buffer: *mut *mut Handle,
+) -> Status;
 pub type LocateProtocol = UnusedPtr;
 pub type InstallMultipleProtocolInterfaces = UnusedPtr;
 pub type UninstallMultipleProtocolInterfaces = UnusedPtr;
@@ -73,6 +79,13 @@ pub const OPEN_PROTOCOL_TEST_PROTOCOL: Uint32 = 0x00000004;
 pub const OPEN_PROTOCOL_BY_CHILD_CONTROLLER: Uint32 = 0x00000008;
 pub const OPEN_PROTOCOL_BY_DRIVER: Uint32 = 0x00000010;
 pub const OPEN_PROTOCOL_EXCLUSIVE: Uint32 = 0x00000020;
+
+#[repr(C)]
+pub enum LocateSearchType {
+    AllHandles,
+    ByRegisterNotify,
+    ByProtocol,
+}
 
 #[repr(C)]
 pub struct BootServices {

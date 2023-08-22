@@ -7,10 +7,11 @@ use bootloader::{
     info, log,
 };
 
-use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr};
+use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr, slice};
 use macros::cstr16;
 use uefi::{
     protocol::{
+        console::{GraphicsOutputProtocol, GRAPHICS_OUTPUT_PROTOCOL_GUID},
         image::{LoadedImageProtocol, LOADED_IMAGE_PROTOCOL_GUID},
         media::{
             FileInfo, FileProtocol, SimpleFileSystemProtocol, FILE_INFO_GUID, FILE_MODE_READ,
@@ -19,7 +20,7 @@ use uefi::{
     },
     table::{
         boot_services::{
-            AllocateType, BootServices, MemoryDescriptor, MemoryType,
+            AllocateType, BootServices, LocateSearchType, MemoryDescriptor, MemoryType,
             OPEN_PROTOCOL_BY_HANDLE_PROTOCOL,
         },
         system_table::SystemTable,
@@ -52,6 +53,30 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
         .map_err(|_| Error::Custom("failed to clear screen"))?;
     let stdout = system_table.stdout();
     writeln!(stdout, "hello world")?;
+
+    let gop = open_gop(system_table.boot_services(), image_handle)?;
+    let mode = gop.mode();
+    let info = mode.info();
+    info!(
+        "resolutoin: {}x{}, pixel format: {}, {}",
+        info.horizontal_resolution,
+        info.vertical_resolution,
+        info.pixel_format,
+        info.pixel_per_scan_line
+    );
+    info!(
+        "frame buffer: {:p} - {:p}, size: {}",
+        mode.frame_buffer_base as *const u8,
+        (mode.frame_buffer_size + mode.frame_buffer_size) as *const u8,
+        mode.frame_buffer_size
+    );
+
+    let frame_buffer = mode.frame_buffer_base as *mut u8;
+    for offset in 0..mode.frame_buffer_size {
+        unsafe {
+            frame_buffer.add(offset).write_volatile(offset as u8);
+        }
+    }
 
     const MEMORY_MAP_SIZE: usize = 4096 * 4;
     let mut memorymap_buf = [0u8; MEMORY_MAP_SIZE];
@@ -267,4 +292,36 @@ fn get_memory_map(system_table: &SystemTable, map: &mut MemoryMap) -> Result<()>
     )
     .to_result()
     .map_err(|_| Error::Custom("failed to get memory map"))
+}
+
+fn open_gop(boot_services: &BootServices, image_handle: Handle) -> Result<&GraphicsOutputProtocol> {
+    let mut num_handle = 0;
+    let mut gop_handles = ptr::null_mut();
+    (boot_services.locate_handle_buffer)(
+        LocateSearchType::ByProtocol,
+        &GRAPHICS_OUTPUT_PROTOCOL_GUID,
+        ptr::null(),
+        &mut num_handle,
+        &mut gop_handles,
+    )
+    .to_result()
+    .map_err(|_| Error::Custom("cannot locate handle buffer"))?;
+    let gop_handles = unsafe { slice::from_raw_parts_mut(gop_handles, num_handle) };
+
+    let mut gop = ptr::null_mut();
+    (boot_services.open_protocol)(
+        gop_handles[0],
+        &GRAPHICS_OUTPUT_PROTOCOL_GUID,
+        &mut gop,
+        image_handle,
+        ptr::null_mut(),
+        OPEN_PROTOCOL_BY_HANDLE_PROTOCOL,
+    )
+    .to_result()
+    .map_err(|_| Error::Custom("cannot open gop"))?;
+    (boot_services.free_pool)(gop_handles.as_mut_ptr() as *mut Void)
+        .to_result()
+        .map_err(|_| Error::Custom("cannot free gop handles"))?;
+
+    Ok(unsafe { &*(gop as *const GraphicsOutputProtocol) })
 }
