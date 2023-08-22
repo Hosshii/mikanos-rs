@@ -34,7 +34,7 @@ impl<'a> Elf<'a> {
         let mut first = usize::max_value();
         let mut last = 0;
         for ph in self.program_header {
-            if ph.type_ != 1 {
+            if ph.type_() != PT_LOAD {
                 continue;
             }
             first = first.min(ph.vaddr);

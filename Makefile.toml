@@ -37,11 +37,20 @@ dependencies = [
     "make-image"
 ]
 
-script = '''
-set -eux
-qemu-system-x86_64 \
-    -drive if=pflash,file=$OVMF_CODE \
-    -drive if=pflash,file=$OVMF_VARS \
-    -hda $DISK_IMG \
-    -monitor stdio
-'''
+command = "qemu-system-x86_64"
+args = [
+    "-drive", "if=pflash,file=${OVMF_CODE}",
+    "-drive", "if=pflash,file=${OVMF_VARS}",
+    "-hda", "${DISK_IMG}",
+    "-monitor", "stdio",
+]
+
+[tasks.run-qemu-dbg]
+extend = "run-qemu"
+args = [
+    "-drive", "if=pflash,file=${OVMF_CODE}",
+    "-drive", "if=pflash,file=${OVMF_VARS}",
+    "-hda", "${DISK_IMG}",
+    "-monitor", "stdio",
+    "-s", "-S"
+]

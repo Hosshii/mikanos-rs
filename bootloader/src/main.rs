@@ -6,8 +6,9 @@ use bootloader::{
     error::{Error, Result, ToRusult},
     info, log,
 };
+use common::KernelArg;
 
-use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr, slice};
+use core::{arch::asm, fmt::Write, hint, mem, panic::PanicInfo, ptr, slice};
 use macros::cstr16;
 use uefi::{
     protocol::{
@@ -57,6 +58,17 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     let gop = open_gop(system_table.boot_services(), image_handle)?;
     let mode = gop.mode();
     let info = mode.info();
+
+    let frame_buffer_base = mode.frame_buffer_base;
+    let frame_buffer_size = mode.frame_buffer_size;
+
+    let frame_buffer = mode.frame_buffer_base as *mut u8;
+    for offset in 0..mode.frame_buffer_size {
+        unsafe {
+            frame_buffer.add(offset).write_volatile(255);
+        }
+    }
+
     info!(
         "resolutoin: {}x{}, pixel format: {}, {}",
         info.horizontal_resolution,
@@ -65,18 +77,11 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
         info.pixel_per_scan_line
     );
     info!(
-        "frame buffer: {:p} - {:p}, size: {}",
-        mode.frame_buffer_base as *const u8,
-        (mode.frame_buffer_size + mode.frame_buffer_size) as *const u8,
-        mode.frame_buffer_size
+        "frame buffer: {:p} - {:p}, size: {:x}",
+        frame_buffer_base as *const u8,
+        (frame_buffer_base + frame_buffer_size as u64) as *const u8,
+        frame_buffer_size
     );
-
-    let frame_buffer = mode.frame_buffer_base as *mut u8;
-    for offset in 0..mode.frame_buffer_size {
-        unsafe {
-            frame_buffer.add(offset).write_volatile(offset as u8);
-        }
-    }
 
     const MEMORY_MAP_SIZE: usize = 4096 * 4;
     let mut memorymap_buf = [0u8; MEMORY_MAP_SIZE];
@@ -124,10 +129,10 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     .to_result()
     .map_err(|_| Error::Custom("cannot get info"))?;
 
-    info!("allocate pool");
     let file_info = file_info_buffer.as_ptr() as *const FileInfo;
     let mut kernel_file_size = unsafe { (*file_info).file_size } as Uintn;
     let mut kernel_buffer = ptr::null_mut();
+    info!("allocate pool. kernel_file_size: {kernel_file_size}");
     (system_table.boot_services().allocate_pool)(
         MemoryType::EfiLoaderData,
         kernel_file_size,
@@ -144,7 +149,9 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     let kernel_buffer = kernel_buffer as *const u8;
 
     let elf = unsafe { Elf::from_raw_parts(kernel_buffer, kernel_file_size) }?;
+
     let (kernel_first_addr, kernel_last_addr) = elf.calc_loader_addr_range();
+    info!("kernel_first_addr: {kernel_first_addr}, kernel_last_addr: {kernel_last_addr}");
 
     info!("allocate pages");
     let num_pages = (kernel_last_addr - kernel_first_addr + 0xffff) / 0x10000;
@@ -162,7 +169,7 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     unsafe { copy_load_segments(&elf, kernel_buffer) }
     writeln!(
         system_table.stdout(),
-        "kernel: 0x{} - 0x{}",
+        "kernel: 0x{:x} - 0x{:x}",
         kernel_first_addr,
         kernel_last_addr
     )?;
@@ -186,10 +193,16 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
             .map_err(|_| Error::Custom("failed to exit boot services"))?;
     }
 
-    let entry_addr = (kernel_first_addr + 24) as *const ();
-    let kernel_main: extern "C" fn() -> ! = unsafe { mem::transmute(entry_addr) };
+    let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
 
-    kernel_main();
+    let kernel_main: extern "sysv64" fn(arg: &mut KernelArg) -> ! =
+        unsafe { mem::transmute(entry_addr) };
+    let mut arg = KernelArg {
+        frame_buffer_base,
+        frame_buffer_size,
+    };
+
+    kernel_main(&mut arg);
 }
 
 fn open_root_dir(image_handle: Handle, boot_services: &BootServices) -> Result<*mut FileProtocol> {
@@ -251,6 +264,7 @@ unsafe fn copy_load_segments(elf: &Elf, buf: *const u8) {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[inline]
 fn halt() -> ! {
     loop {
         unsafe {
@@ -260,6 +274,7 @@ fn halt() -> ! {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 fn halt() -> ! {
     loop {
         unsafe {
