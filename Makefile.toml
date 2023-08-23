@@ -30,6 +30,13 @@ sudo cp $KERNEL_FILE $MNT_POINT/kernel.elf
 sudo umount $MNT_POINT
 '''
 
+[tasks.make-image-release]
+extend = "make-image"
+dependencies = [
+    { name = "build-release", path = "kernel" },
+    { name = "build-release", path = "bootloader" }
+]
+
 [tasks.run-qemu]
 description = "run qemu"
 workspace = false
@@ -53,4 +60,10 @@ args = [
     "-hda", "${DISK_IMG}",
     "-monitor", "stdio",
     "-s", "-S"
+]
+
+[tasks.run-qemu-release]
+extend = "run-qemu"
+dependencies = [
+    "make-image-release"
 ]

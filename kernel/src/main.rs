@@ -4,7 +4,8 @@
 use core::{arch::asm, panic::PanicInfo};
 
 use kernel::{
-    console::{FrameBufferInfo, Graphic, PixelColor, Position},
+    graphic::pixel::FrameBufferInfo,
+    graphic::{Color, Graphic, PixelWriter, Position, StringWriter},
     KernelArg,
 };
 
@@ -22,16 +23,24 @@ pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
     for x in 0..graphic.info().horizontal_resolution() {
         for y in 0..graphic.info().vertical_resolution() {
             let pos = Position::new(x as i32, y as i32);
-            graphic.write_pixel(pos, PixelColor::WHITE);
+            graphic.write_pixel(pos, Color::WHITE);
         }
     }
 
     for x in 0..200 {
         for y in 0..100 {
             let pos = Position::new(x as i32, y as i32);
-            graphic.write_pixel(pos, PixelColor::GREEN);
+            graphic.write_pixel(pos, Color::GREEN);
         }
     }
+
+    let string = r#"`!?#@"'()_\$<>-^&*/~|={};:+[]%qdrfbashtgzxmcjwupvyneoil,.k1234567890"#;
+    graphic.write_string(
+        Position::new(0, 10),
+        string,
+        Color::BLACK,
+        Some(Color::WHITE),
+    );
 
     halt()
 }

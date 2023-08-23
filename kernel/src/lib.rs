@@ -1,6 +1,6 @@
 #![no_std]
 
-pub mod console;
+pub mod graphic;
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

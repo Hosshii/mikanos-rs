@@ -1,20 +1,23 @@
+use core::ops::Add;
+
 use crate::KernelArg;
 
-pub type Result<T> = core::result::Result<T, Error>;
+use super::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PixelColor {
+pub struct Color {
     r: u8,
     g: u8,
     b: u8,
 }
 
-impl PixelColor {
+impl Color {
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
     }
 
     pub const WHITE: Self = Self::new(255, 255, 255);
+    pub const BLACK: Self = Self::new(0, 0, 0);
     pub const GREEN: Self = Self::new(0, 255, 0);
 }
 
@@ -45,16 +48,6 @@ impl FrameBufferInfo {
             vertical_resolution,
             pixel_format,
         }
-    }
-
-    /// 何ピクセル目かどうか
-    /// アドレスではない
-    fn pixel_at(&self, pos: Position) -> usize {
-        (self.pixels_per_scan_line as i32 * pos.y + pos.x) as usize
-    }
-
-    fn is_valid_pos(&self, pos: Position) -> bool {
-        self.pixel_at(pos) < self.buffer_size()
     }
 
     fn buffer_size(&self) -> usize {
@@ -114,27 +107,24 @@ impl Position {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Error(ErrorKind);
+impl Add<Position> for Position {
+    type Output = Self;
 
-impl Error {
-    pub fn invalid_pos(pos: Position) -> Error {
-        Error(ErrorKind::InvalidPos(pos))
+    fn add(self, rhs: Position) -> Self::Output {
+        Position {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ErrorKind {
-    InvalidPos(Position),
-}
-
 trait PixelWriterInner {
-    unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: PixelColor);
+    unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: Color);
 }
 
 struct RGBWriter;
 impl PixelWriterInner for RGBWriter {
-    unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: PixelColor) {
+    unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: Color) {
         let base = ptr.add(offset);
         unsafe {
             base.write_volatile(color.r);
@@ -146,13 +136,40 @@ impl PixelWriterInner for RGBWriter {
 
 struct BGRWriter;
 impl PixelWriterInner for BGRWriter {
-    unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: PixelColor) {
+    unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: Color) {
         let base = ptr.add(offset);
         unsafe {
             base.write_volatile(color.b);
             base.add(1).write_volatile(color.g);
             base.add(2).write_volatile(color.r);
         }
+    }
+}
+
+pub trait PixelWriter {
+    fn write_pixel(&mut self, pos: Position, color: Color) -> Result<()>;
+
+    unsafe fn write_pixel_unchecked(&mut self, pos: Position, color: Color);
+}
+
+impl PixelWriter for Graphic {
+    fn write_pixel(&mut self, pos: Position, color: Color) -> Result<()> {
+        if !self.is_valid_pos(pos) {
+            return Err(Error::invalid_pos(pos));
+        }
+
+        unsafe {
+            self.write_pixel_unchecked(pos, color);
+        }
+        Ok(())
+    }
+
+    unsafe fn write_pixel_unchecked(&mut self, pos: Position, color: Color) {
+        let offset = self.pixel_at(pos) * 4;
+        unsafe {
+            self.writer
+                .write_pixel(self.info.frame_buffer_base, offset, color)
+        };
     }
 }
 
@@ -170,17 +187,14 @@ impl Graphic {
         Self { info, writer }
     }
 
-    pub fn write_pixel(&mut self, pos: Position, color: PixelColor) -> Result<()> {
-        if !self.info.is_valid_pos(pos) {
-            return Err(Error::invalid_pos(pos));
-        }
-        let offset = self.info.pixel_at(pos) * 4;
+    /// 何ピクセル目かどうか
+    /// アドレスではない
+    fn pixel_at(&self, pos: Position) -> usize {
+        (self.info().pixels_per_scan_line() as i32 * pos.y + pos.x) as usize
+    }
 
-        unsafe {
-            self.writer
-                .write_pixel(self.info.frame_buffer_base, offset, color)
-        };
-        Ok(())
+    fn is_valid_pos(&self, pos: Position) -> bool {
+        self.pixel_at(pos) < self.info().buffer_size()
     }
 
     pub fn info(&self) -> &FrameBufferInfo {
