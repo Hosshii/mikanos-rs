@@ -10,6 +10,10 @@ use kernel::{
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    let console = kernel::console();
+    console.clear_cursor();
+    console.clear_screen();
+    println!("panic");
     loop {}
 }
 
@@ -49,6 +53,10 @@ pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
     println!("qdrfbashtgzxmcjwupvyneoil,.k");
     println!("1234567890");
     println!("hello {}", "world");
+
+    for i in 0..35 {
+        println!("line: {i}, {}", kernel::console().row_num());
+    }
 
     halt()
 }

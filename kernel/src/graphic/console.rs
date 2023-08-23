@@ -7,7 +7,7 @@ use super::{
     PixelPosition, StringWriter,
 };
 
-const ROW_NUM: usize = 25;
+const ROW_NUM: usize = 38;
 const COL_NUM: usize = 80;
 
 pub struct Console<W, const ROW: usize = ROW_NUM, const COL: usize = COL_NUM>
@@ -64,7 +64,7 @@ where
     }
 
     /// カーソルは動かさない
-    fn clear_screen(&mut self) -> Result<()> {
+    pub fn clear_screen(&mut self) -> Result<()> {
         for y in 0..FONT_HEIGHT * ROW {
             for x in 0..FONT_WIDTH * COL {
                 self.writer
@@ -75,8 +75,20 @@ where
         Ok(())
     }
 
+    pub fn clear_cursor(&mut self) {
+        self.cursor_pos = FontPosition::new(0, 0);
+    }
+
     pub fn graphic(&mut self) -> &mut W {
         &mut self.writer
+    }
+
+    pub const fn row_num(&self) -> usize {
+        ROW
+    }
+
+    pub const fn col_num(&self) -> usize {
+        COL
     }
 }
 
@@ -94,6 +106,7 @@ where
                 self.writer
                     .write_font(pos, font, self.font_color, self.font_bg_color)
                     .map_err(|_| fmt::Error)?;
+                self.buffer[self.cursor_pos.y as usize][self.cursor_pos.x as usize] = c as u8;
                 self.cursor_pos.x += 1;
             }
         }
