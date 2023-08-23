@@ -96,29 +96,29 @@ impl From<crate::PixelFormat> for PixelFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Position {
-    x: i32,
-    y: i32,
+pub struct PixelPosition {
+    x: u32,
+    y: u32,
 }
 
-impl Position {
-    pub fn new(x: i32, y: i32) -> Self {
+impl PixelPosition {
+    pub fn new(x: u32, y: u32) -> Self {
         Self { x, y }
     }
 }
 
-impl Add<Position> for Position {
+impl Add<PixelPosition> for PixelPosition {
     type Output = Self;
 
-    fn add(self, rhs: Position) -> Self::Output {
-        Position {
+    fn add(self, rhs: PixelPosition) -> Self::Output {
+        PixelPosition {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
         }
     }
 }
 
-trait PixelWriterInner {
+pub trait PixelWriterInner: sealed::Sealed {
     unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: Color);
 }
 
@@ -147,13 +147,16 @@ impl PixelWriterInner for BGRWriter {
 }
 
 pub trait PixelWriter {
-    fn write_pixel(&mut self, pos: Position, color: Color) -> Result<()>;
+    fn write_pixel(&mut self, pos: PixelPosition, color: Color) -> Result<()>;
 
-    unsafe fn write_pixel_unchecked(&mut self, pos: Position, color: Color);
+    unsafe fn write_pixel_unchecked(&mut self, pos: PixelPosition, color: Color);
 }
 
-impl PixelWriter for Graphic {
-    fn write_pixel(&mut self, pos: Position, color: Color) -> Result<()> {
+impl<'a, W> PixelWriter for Graphic<'a, W>
+where
+    W: PixelWriterInner + ?Sized,
+{
+    fn write_pixel(&mut self, pos: PixelPosition, color: Color) -> Result<()> {
         if !self.is_valid_pos(pos) {
             return Err(Error::invalid_pos(pos));
         }
@@ -164,7 +167,7 @@ impl PixelWriter for Graphic {
         Ok(())
     }
 
-    unsafe fn write_pixel_unchecked(&mut self, pos: Position, color: Color) {
+    unsafe fn write_pixel_unchecked(&mut self, pos: PixelPosition, color: Color) {
         let offset = self.pixel_at(pos) * 4;
         unsafe {
             self.writer
@@ -173,12 +176,15 @@ impl PixelWriter for Graphic {
     }
 }
 
-pub struct Graphic {
+pub struct Graphic<'a, W>
+where
+    W: PixelWriterInner + ?Sized,
+{
     info: FrameBufferInfo,
-    writer: &'static dyn PixelWriterInner,
+    writer: &'a W,
 }
 
-impl Graphic {
+impl Graphic<'static, dyn PixelWriterInner> {
     pub fn new(info: FrameBufferInfo) -> Self {
         let writer: &dyn PixelWriterInner = match info.pixel_format {
             PixelFormat::PixelRGBResv8BitPerColor => &RGBWriter,
@@ -186,14 +192,19 @@ impl Graphic {
         };
         Self { info, writer }
     }
+}
 
+impl<'a, W> Graphic<'a, W>
+where
+    W: PixelWriterInner + ?Sized,
+{
     /// 何ピクセル目かどうか
     /// アドレスではない
-    fn pixel_at(&self, pos: Position) -> usize {
-        (self.info().pixels_per_scan_line() as i32 * pos.y + pos.x) as usize
+    fn pixel_at(&self, pos: PixelPosition) -> usize {
+        (self.info().pixels_per_scan_line() * pos.y + pos.x) as usize
     }
 
-    fn is_valid_pos(&self, pos: Position) -> bool {
+    fn is_valid_pos(&self, pos: PixelPosition) -> bool {
         self.pixel_at(pos) < self.info().buffer_size()
     }
 
@@ -201,3 +212,10 @@ impl Graphic {
         &self.info
     }
 }
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+impl sealed::Sealed for RGBWriter {}
+impl sealed::Sealed for BGRWriter {}

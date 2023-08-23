@@ -2,11 +2,12 @@ use std::{env, io::Write};
 
 const SOURCE: &str = r#"
 use crate::graphic::font::Font;
+
 const FONT_RAW: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/font_data"));
 
 /// get `Font` corresponding to `c`.
 /// if `c` is non ascii char, rerutn `None`.
-pub fn get_font(c: char) -> Option<Font> {
+pub(crate) fn get_font(c: char) -> Option<&'static Font> {
     let index = 16 * c as usize;
     if index + 16 > FONT_RAW.len() {
         None
