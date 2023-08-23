@@ -16,7 +16,8 @@ where
 {
     writer: W,
     buffer: [[u8; COL]; ROW],
-    fg_color: Color,
+    font_color: Color,
+    font_bg_color: Option<Color>,
     bg_color: Color,
     cursor_pos: FontPosition,
 }
@@ -29,7 +30,8 @@ where
         Self {
             writer,
             buffer: [[0; COL_NUM]; ROW_NUM],
-            fg_color: Color::BLACK,
+            font_color: Color::BLACK,
+            font_bg_color: None,
             bg_color: Color::WHITE,
             cursor_pos: FontPosition::new(0, 0),
         }
@@ -54,7 +56,7 @@ where
                 let string = core::str::from_utf8(&lhs[row]).map_err(Error::utf8)?;
                 let pos = PixelPosition::new(0, (row * FONT_HEIGHT) as u32);
                 self.writer
-                    .write_string(pos, string, self.fg_color, Some(self.bg_color))?;
+                    .write_string(pos, string, self.font_color, self.font_bg_color)?;
             }
         }
 
@@ -72,6 +74,10 @@ where
 
         Ok(())
     }
+
+    pub fn graphic(&mut self) -> &mut W {
+        &mut self.writer
+    }
 }
 
 impl<W, const ROW: usize, const COL: usize> Write for Console<W, ROW, COL>
@@ -86,7 +92,7 @@ where
                 let pos = PixelPosition::from(self.cursor_pos);
                 let font = font::get_font(c).ok_or(fmt::Error)?;
                 self.writer
-                    .write_font(pos, font, self.fg_color, Some(self.bg_color))
+                    .write_font(pos, font, self.font_color, self.font_bg_color)
                     .map_err(|_| fmt::Error)?;
                 self.cursor_pos.x += 1;
             }

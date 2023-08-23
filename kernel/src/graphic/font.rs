@@ -68,9 +68,9 @@ pub trait StringWriter: FontWriter {
         bg_color: Option<Color>,
     ) -> Result<()> {
         for (idx, c) in string.chars().enumerate() {
-            let font = font_gen::get_font(c).ok_or(Error::unsupported_font(c))?;
+            let font = get_font(c).ok_or(Error::unsupported_font(c))?;
             let pos = pos + PixelPosition::new(idx as u32 * 8, 0);
-            self.write_font(pos, &font, fg_color, bg_color)?;
+            self.write_font(pos, font, fg_color, bg_color)?;
         }
         Ok(())
     }
