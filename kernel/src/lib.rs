@@ -44,4 +44,4 @@ pub enum PixelFormat {
 
 pub type KernelMain = extern "sysv64" fn(arg: KernelArg) -> !;
 
-pub use graphic::{console, init};
+pub use graphic::{console, console_mut, init};

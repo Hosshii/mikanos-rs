@@ -50,7 +50,7 @@ impl FrameBufferInfo {
         }
     }
 
-    fn buffer_size(&self) -> usize {
+    pub fn buffer_size(&self) -> usize {
         self.frame_buffer_size
     }
 
@@ -64,6 +64,10 @@ impl FrameBufferInfo {
 
     pub fn vertical_resolution(&self) -> u32 {
         self.vertical_resolution
+    }
+
+    pub fn pixel_format(&self) -> PixelFormat {
+        self.pixel_format
     }
 }
 
@@ -219,3 +223,45 @@ mod sealed {
 
 impl sealed::Sealed for RGBWriter {}
 impl sealed::Sealed for BGRWriter {}
+
+pub trait RectWriter: PixelWriter {
+    fn fill_rect(
+        &mut self,
+        pos: PixelPosition,
+        size: PixelPosition,
+        color: impl Into<Color>,
+    ) -> Result<()> {
+        let color = color.into();
+        for y in 0..size.y {
+            for x in 0..size.x {
+                let delta = PixelPosition::new(x, y);
+                self.write_pixel(pos + delta, color)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_rect(
+        &mut self,
+        pos: PixelPosition,
+        size: PixelPosition,
+        color: impl Into<Color>,
+    ) -> Result<()> {
+        let color = color.into();
+        for x in 0..size.x {
+            let delta = PixelPosition::new(x, 0);
+            self.write_pixel(pos + delta, color)?;
+            let delta = PixelPosition::new(x, size.y.saturating_sub(1));
+            self.write_pixel(pos + delta, color)?;
+        }
+        for y in 0..size.y {
+            let delta = PixelPosition::new(0, y);
+            self.write_pixel(pos + delta, color)?;
+            let delta = PixelPosition::new(size.x.saturating_sub(1), y);
+            self.write_pixel(pos + delta, color)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T> RectWriter for T where T: PixelWriter {}

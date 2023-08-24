@@ -5,17 +5,18 @@ pub mod font_gen;
 pub mod pixel;
 
 use core::{
+    cell::{Ref, RefCell, RefMut},
     mem::MaybeUninit,
     sync::atomic::{AtomicU8, Ordering},
 };
 
 pub use console::Console;
 pub use font::{FontWriter, StringWriter};
-pub use pixel::{Color, Graphic, PixelPosition, PixelWriter};
+pub use pixel::{Color, Graphic, PixelPosition, PixelWriter, RectWriter};
 
 use self::pixel::{FrameBufferInfo, PixelWriterInner};
 
-static mut CONSOLE: MaybeUninit<Console<Graphic<'static, dyn PixelWriterInner>>> =
+static mut CONSOLE: MaybeUninit<RefCell<Console<Graphic<'static, dyn PixelWriterInner>>>> =
     MaybeUninit::uninit();
 
 // 0: uninitalized
@@ -40,7 +41,7 @@ pub fn init(info: FrameBufferInfo) {
                 .is_ok()
             {
                 let graphic = Graphic::new(info);
-                let console = Console::new(graphic);
+                let console = RefCell::new(Console::new(graphic));
                 unsafe {
                     CONSOLE.write(console);
                 }
@@ -61,13 +62,21 @@ pub fn init(info: FrameBufferInfo) {
     }
 }
 
-pub fn console() -> &'static mut Console<Graphic<'static, dyn PixelWriterInner>> {
+fn _console() -> &'static RefCell<Console<Graphic<'static, dyn PixelWriterInner>>> {
+    if IS_INITIALIZED.load(Ordering::SeqCst) == INITIALIZED {
+        unsafe { &*CONSOLE.as_mut_ptr() }
+    } else {
+        panic!("uninitialized console")
+    }
+}
+
+pub fn console() -> Ref<'static, Console<Graphic<'static, dyn PixelWriterInner>>> {
+    _console().borrow()
+}
+
+pub fn console_mut() -> RefMut<'static, Console<Graphic<'static, dyn PixelWriterInner>>> {
     {
-        if IS_INITIALIZED.load(Ordering::SeqCst) == INITIALIZED {
-            unsafe { &mut *CONSOLE.as_mut_ptr() }
-        } else {
-            panic!("uninitialized console")
-        }
+        _console().borrow_mut()
     }
 }
 
@@ -85,5 +94,5 @@ macro_rules! println {
 #[doc(hidden)]
 pub fn _print(args: core::fmt::Arguments) {
     use core::fmt::Write;
-    console().write_fmt(args).unwrap();
+    console_mut().write_fmt(args).unwrap();
 }

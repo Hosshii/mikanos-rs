@@ -3,8 +3,8 @@ use core::fmt::{self, Write};
 use super::{
     error::{Error, Result},
     font::{self, FontWriter, FONT_HEIGHT, FONT_WIDTH},
-    pixel::Color,
-    PixelPosition, StringWriter,
+    pixel::{Color, FrameBufferInfo, PixelFormat},
+    PixelPosition, PixelWriter, StringWriter,
 };
 
 const ROW_NUM: usize = 38;
@@ -130,5 +130,39 @@ impl FontPosition {
 impl From<FontPosition> for PixelPosition {
     fn from(value: FontPosition) -> Self {
         PixelPosition::new(value.x * FONT_WIDTH as u32, value.y * FONT_HEIGHT as u32)
+    }
+}
+
+impl<W, const ROW: usize, const COL: usize> PixelWriter for Console<W, ROW, COL>
+where
+    W: FontWriter,
+{
+    fn write_pixel(&mut self, pos: PixelPosition, color: Color) -> Result<()> {
+        self.graphic().write_pixel(pos, color)
+    }
+
+    unsafe fn write_pixel_unchecked(&mut self, pos: PixelPosition, color: Color) {
+        self.graphic().write_pixel_unchecked(pos, color)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Info {
+    frame_buffer_size: usize,
+    pixels_per_scan_line: u32,
+    horizontal_resolution: u32,
+    vertical_resolution: u32,
+    pixel_format: PixelFormat,
+}
+
+impl From<FrameBufferInfo> for Info {
+    fn from(value: FrameBufferInfo) -> Self {
+        Self {
+            frame_buffer_size: value.buffer_size(),
+            pixels_per_scan_line: value.pixels_per_scan_line(),
+            horizontal_resolution: value.horizontal_resolution(),
+            vertical_resolution: value.vertical_resolution(),
+            pixel_format: value.pixel_format(),
+        }
     }
 }
