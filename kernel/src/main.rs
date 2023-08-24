@@ -4,9 +4,11 @@
 use core::{arch::asm, panic::PanicInfo};
 
 use kernel::{
+    error::Result,
     graphic::{
         pixel::FrameBufferInfo, Color, PixelPosition, PixelWriter, RectWriter, StringWriter,
     },
+    pci::Pci,
     println, KernelArg,
 };
 
@@ -50,6 +52,14 @@ fn panic(info: &PanicInfo) -> ! {
 // entry point
 #[no_mangle]
 pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
+    if let Err(e) = kernel_main_impl(arg) {
+        println!("{:?}", e)
+    }
+
+    halt();
+}
+
+fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let frame_buffer_info = FrameBufferInfo::from(arg);
     kernel::init(frame_buffer_info);
 
@@ -58,26 +68,24 @@ pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
     for x in 0..console.graphic().info().horizontal_resolution() {
         for y in 0..console.graphic().info().vertical_resolution() {
             let pos = PixelPosition::new(x, y);
-            console.write_pixel(pos, Color::WHITE).unwrap();
+            console.write_pixel(pos, Color::WHITE)?;
         }
     }
 
     for x in 0..200 {
         for y in 0..100 {
             let pos = PixelPosition::new(x, y);
-            console.write_pixel(pos, Color::GREEN).unwrap();
+            console.write_pixel(pos, Color::GREEN)?;
         }
     }
 
     let string = r#"`!?#@"'()_\$<>-^&*/~|={};:+[]%qdrfbashtgzxmcjwupvyneoil,.k1234567890"#;
-    console
-        .write_string(
-            PixelPosition::new(0, 10),
-            string,
-            Color::BLACK,
-            Some(Color::WHITE),
-        )
-        .unwrap();
+    console.write_string(
+        PixelPosition::new(0, 10),
+        string,
+        Color::BLACK,
+        Some(Color::WHITE),
+    )?;
 
     drop(console);
 
@@ -95,13 +103,9 @@ pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
         for (x, c) in row.chars().enumerate() {
             let pos = PixelPosition::new(200 + x as u32, 100 + y as u32);
             if c == '@' {
-                kernel::console_mut()
-                    .write_pixel(pos, Color::WHITE)
-                    .unwrap();
+                kernel::console_mut().write_pixel(pos, Color::WHITE)?;
             } else if c == '.' {
-                kernel::console_mut()
-                    .write_pixel(pos, Color::BLACK)
-                    .unwrap();
+                kernel::console_mut().write_pixel(pos, Color::BLACK)?;
             }
         }
     }
@@ -111,15 +115,22 @@ pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
         .info()
         .pixels_per_scan_line();
 
-    kernel::console_mut()
-        .fill_rect(
-            PixelPosition::new(0, 0),
-            PixelPosition::new(per_line, 50),
-            Color::new(45, 118, 237),
-        )
-        .unwrap();
+    kernel::console_mut().fill_rect(
+        PixelPosition::new(0, 0),
+        PixelPosition::new(per_line, 50),
+        Color::new(45, 118, 237),
+    )?;
 
-    halt()
+    let mut pci = Pci::new();
+
+    pci.scan_all_bus()?;
+    println!("scan all bus");
+
+    for dev in pci.devices() {
+        println!("{:?}", dev);
+    }
+
+    Ok(())
 }
 
 #[cfg(target_arch = "x86_64")]

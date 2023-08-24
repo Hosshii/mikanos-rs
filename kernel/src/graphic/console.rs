@@ -8,7 +8,7 @@ use super::{
 };
 
 const ROW_NUM: usize = 38;
-const COL_NUM: usize = 80;
+const COL_NUM: usize = 100;
 
 pub struct Console<W, const ROW: usize = ROW_NUM, const COL: usize = COL_NUM>
 where

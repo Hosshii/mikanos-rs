@@ -1,6 +1,8 @@
 #![no_std]
 
+pub mod error;
 pub mod graphic;
+pub mod pci;
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
