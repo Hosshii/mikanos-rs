@@ -59,11 +59,11 @@ fn write_address(address: u32) {
 }
 
 fn write_data(v: u32) {
-    io_out32(CONFIG_DATA, v);
+    io_out32(CONFIG_DATA, v.to_le());
 }
 
 fn read_data() -> u32 {
-    io_in32(CONFIG_DATA)
+    u32::from_le(io_in32(CONFIG_DATA))
 }
 
 fn make_address(bus: u8, device: u8, function: u8, reg_addr: u8) -> Result<u32> {
