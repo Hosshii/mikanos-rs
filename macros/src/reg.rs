@@ -6,11 +6,27 @@ use syn::{
     parse::{Parse, ParseStream, Parser},
     punctuated::Punctuated,
     token::{Bracket, FatArrow, Semi, Struct},
-    Attribute, Error, Expr, ExprLit, Field, FieldsNamed, Ident, Lit, LitInt, Meta, MetaList,
-    Result, Token, Type, TypeArray, TypePath, Visibility,
+    Attribute, Error, Field, FieldsNamed, Ident, LitInt, Meta, MetaList, Result, Token, Type,
+    TypeArray, Visibility,
 };
 
-pub(crate) fn bitfield_struct_impl(input: TokenStream) -> Result<TokenStream> {
+use crate::common::{expect_t, ty_bits};
+
+pub(crate) fn bitfield_struct_impl(tokens: TokenStream) -> Result<TokenStream> {
+    parse_bitfield_structs.parse2(tokens)
+}
+
+fn parse_bitfield_structs(input: ParseStream) -> Result<TokenStream> {
+    let mut result = Vec::new();
+    while !input.is_empty() {
+        let stream = parse_bitfield_struct(input)?;
+        result.push(stream);
+    }
+
+    Ok(result.into_iter().collect())
+}
+
+fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
     let ItemBitFieldStruct {
         attrs,
         vis,
@@ -19,7 +35,7 @@ pub(crate) fn bitfield_struct_impl(input: TokenStream) -> Result<TokenStream> {
 
         fields,
         ..
-    } = ItemBitFieldStruct::parse.parse2(input)?;
+    } = ItemBitFieldStruct::parse(input)?;
     let attrs: TokenStream = attrs.iter().map(ToTokens::to_token_stream).collect();
     let struct_fields: Vec<_> = fields.fields.iter().map(|v| &v.field).collect();
     let struct_fields_init: TokenStream = struct_fields
@@ -42,6 +58,7 @@ pub(crate) fn bitfield_struct_impl(input: TokenStream) -> Result<TokenStream> {
             # ( #struct_fields ,)*
         }
 
+        #[allow(non_snake_case)]
         impl #ident {
             pub fn new() -> Self {
                 Self{
@@ -65,7 +82,7 @@ struct ItemBitFieldStruct {
     pub struct_token: Struct,
     pub ident: Ident,
     pub fields: BitFieldStructFields,
-    pub semi_token: Option<Semi>,
+    pub _semi_token: Option<Semi>,
 }
 
 impl Parse for ItemBitFieldStruct {
@@ -79,7 +96,7 @@ impl Parse for ItemBitFieldStruct {
         braced!(content in input);
 
         let fields = content.parse::<BitFieldStructFields>()?;
-        let semi_token = content.parse()?;
+        let _semi_token = content.parse()?;
 
         Ok(ItemBitFieldStruct {
             attrs,
@@ -88,7 +105,7 @@ impl Parse for ItemBitFieldStruct {
             ident,
 
             fields,
-            semi_token,
+            _semi_token,
         })
     }
 }
@@ -183,46 +200,6 @@ impl BitFieldStructField {
             }
             None => base_method,
         })
-    }
-}
-
-fn ty_bits(ty: &Type) -> Result<u32> {
-    match ty {
-        Type::Array(TypeArray {
-            elem,
-            len:
-                Expr::Lit(ExprLit {
-                    lit: Lit::Int(lit_int),
-                    ..
-                }),
-            ..
-        }) => {
-            let len = lit_int.base10_parse::<u32>()?;
-            let elem_bits = ty_bits(elem)?;
-
-            Ok(len * elem_bits)
-        }
-
-        Type::Path(TypePath { path, .. }) => {
-            let ident = path
-                .get_ident()
-                .ok_or(Error::new_spanned(ty, "single type required"))?;
-
-            match ident.to_string().as_str() {
-                "bool" => Ok(1),
-                "u8" | "i8" => Ok(8),
-                "u16" | "i16" => Ok(16),
-                "u32" | "i32" => Ok(32),
-                "u64" | "i64" => Ok(64),
-
-                x => Err(Error::new_spanned(
-                    ident,
-                    format!("{x} is unsupported type"),
-                )),
-            }
-        }
-
-        _ => Err(Error::new_spanned(ty, "type should be array or integer")),
     }
 }
 
@@ -325,10 +302,6 @@ struct BitFieldNamed {
 }
 
 impl BitFieldNamed {
-    fn bit_size(&self) -> Result<u32> {
-        self.fields.named.iter().map(|v| ty_bits(&v.ty)).sum()
-    }
-
     fn gen_method(
         &self,
         method_prefix: &Ident,
@@ -451,16 +424,6 @@ fn gen_field_method(
         },
         bit_size,
     ))
-}
-
-fn expect_t<T: Parse>(input: ParseStream) -> Result<T> {
-    match input.parse::<T>() {
-        Ok(t) => Ok(t),
-        Err(e) => Err(Error::new(
-            input.span(),
-            format!("expected: {}\nerror: {}", std::any::type_name::<T>(), e),
-        )),
-    }
 }
 
 #[cfg(test)]

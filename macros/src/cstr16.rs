@@ -2,9 +2,11 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use syn::{
-    parse::{Parse, ParseStream, Parser},
+    parse::{ParseStream, Parser},
     Error, LitStr, Result,
 };
+
+use crate::common::expect_t;
 
 pub(crate) fn cstr16impl(tokens: TokenStream) -> TokenStream {
     cstr16parse
@@ -27,16 +29,6 @@ fn cstr16parse(input: ParseStream) -> Result<TokenStream> {
     Ok(quote!(unsafe {
         ::uefi::types::CStr16::from_u16_unchecked(&[ #(#utf16 ,)* 0u16])
     }))
-}
-
-fn expect_t<T: Parse>(input: &ParseStream) -> Result<T> {
-    match input.parse::<T>() {
-        Ok(t) => Ok(t),
-        Err(e) => Err(Error::new(
-            input.span(),
-            format!("expected: {}\nerror: {}", std::any::type_name::<T>(), e),
-        )),
-    }
 }
 
 #[cfg(test)]
