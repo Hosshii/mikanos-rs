@@ -1,3 +1,4 @@
+mod context;
 mod endian;
 mod error;
 mod register_map;
