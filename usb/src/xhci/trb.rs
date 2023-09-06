@@ -1,56 +1,44 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Bit {
-    Zero,
-    One,
+use super::endian::{LeU16, LeU32, LeU64};
+
+/// FFI types.
+/// fields are little endian.
+#[repr(C, packed)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TRBRaw {
+    parameter: LeU64,
+    status: LeU32,
+    control: LeU16,
+    // 15 ~ 10: trb type
+    // 9  ~ 1 :
+    // 0  ~ 0 : circle bit
+    remain: LeU16,
 }
 
-impl Bit {
-    pub fn as_byte(self) -> u8 {
-        match self {
-            Bit::Zero => 0,
-            Bit::One => 1,
+impl TRBRaw {
+    pub fn new(parameter: u64, status: u32, control: u16, remain: u16) -> Self {
+        Self {
+            parameter: LeU64::from(parameter),
+            status: LeU32::from(status),
+            control: LeU16::from(control),
+            remain: LeU16::from(remain),
         }
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TRBBase {
-    parameter: u64,
-    status: u32,
-    control: u16,
-    // 15 ~ 10: trb type
-    // 9  ~ 1 :
-    // 0  ~ 0 : circle bit
-    remain: u16,
-}
-
-impl TRBBase {
-    pub fn set_circle(mut self, bit: Bit) -> Self {
-        self.remain |= bit.as_byte() as u16;
-        self
-    }
-
-    pub fn trb_type(&self) -> TrbType {
-        let ty = self.remain >> 10;
-        TrbType::from_u8(ty as u8)
-    }
-}
-
-impl From<Link> for TRBBase {
+impl From<Link> for TRBRaw {
     fn from(value: Link) -> Self {
         todo!()
     }
 }
 
-impl From<TRB> for TRBBase {
+impl From<TRB> for TRBRaw {
     fn from(value: TRB) -> Self {
         todo!()
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum TrbType {
+pub enum TrbType {
     Normal,
     SetupStage,
     DataStage,
@@ -109,7 +97,47 @@ impl TrbType {
     }
 }
 
-pub struct Link {}
+pub struct Link {
+    ring_segment_pointer_lo: u32, // only 28 bits are used. least 4 bits are not used.
+    ring_segment_pointer_hi: u32,
+    interrupter_target: u16, // Only 10 bits are used, so masking will be necessary.
+    cycle_bit: bool,
+    toggle_cycle: bool,
+    chain_bit: bool,
+    interrupt_on_completion: bool,
+    trb_type: TrbType,
+}
+
+impl Link {
+    pub const TYPE: TrbType = TrbType::Link;
+
+    pub fn new(segment_ptr: *const ()) -> Self {
+        let raw_ptr = (segment_ptr as u64) & 0xFFFFFFFFFFFFFFF0;
+        let lo = raw_ptr as u32;
+        let hi = (raw_ptr >> 32) as u32;
+
+        Self {
+            ring_segment_pointer_lo: lo,
+            ring_segment_pointer_hi: hi,
+            interrupter_target: 0,
+            cycle_bit: false,
+            toggle_cycle: false,
+            chain_bit: false,
+            interrupt_on_completion: false,
+            trb_type: Self::TYPE,
+        }
+    }
+
+    pub fn set_cycle(mut self, v: bool) -> Self {
+        self.cycle_bit = v;
+        self
+    }
+
+    pub fn set_toggle(mut self, v: bool) -> Self {
+        self.toggle_cycle = v;
+        self
+    }
+}
 
 pub enum TRB {
     Normal,
@@ -128,8 +156,8 @@ pub enum TRB {
     Unknown(u8),
 }
 
-impl From<TRBBase> for TRB {
-    fn from(value: TRBBase) -> Self {
+impl From<TRBRaw> for TRB {
+    fn from(value: TRBRaw) -> Self {
         todo!()
     }
 }
