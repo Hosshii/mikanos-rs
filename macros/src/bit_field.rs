@@ -1,14 +1,21 @@
-use proc_macro2::TokenStream;
+use std::str::FromStr;
+
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 // `remove unused imports` token::Bracket regardless it is used or not.
 use syn::{
     braced, bracketed,
     parse::{Parse, ParseStream, Parser},
     punctuated::Punctuated,
+    spanned::Spanned,
     token::{Bracket, FatArrow, Semi, Struct},
-    Attribute, Error, Field, FieldsNamed, Generics, Ident, LitInt, Meta, MetaList, Result, Token,
-    Type, TypeArray, Visibility, WhereClause,
+    Attribute, Error, Expr, ExprLit, Field, FieldMutability, FieldsNamed, Generics, Ident, Lit,
+    LitInt, Meta, MetaList, Result, Token, Type, TypeArray, TypePath, Visibility, WhereClause,
 };
+
+trait Validate {
+    fn validate(&self) -> Result<()>;
+}
 
 use crate::common::{expect_t, ty_bits};
 
@@ -159,11 +166,54 @@ struct BitFieldStructField {
 
 impl Parse for BitFieldStructField {
     fn parse(input: ParseStream) -> Result<Self> {
+        fn validate_bits_attributes_size(expected: u32, field: &BitFieldNamed) -> Result<()> {
+            let attributes_size = field.get_bit_attrs_sum()?;
+            if attributes_size != expected {
+                return Err(Error::new_spanned(
+                    &field.fields,
+                    format!(
+                        "field size does not match, expected: {}, got: {}",
+                        expected, attributes_size
+                    ),
+                ));
+            }
+
+            Ok(())
+        }
+
         let field = Field::parse_named(input)?;
 
         let bit_field = if input.lookahead1().peek(Token![=>]) {
             expect_t::<FatArrow>(input)?;
             let bit_field = input.parse::<BitField>()?;
+            let ty = MyType::from_syn(&field.ty)?;
+            match (ty, &bit_field) {
+                (MyType::Normal(ty), BitField::Normal(normal)) => {
+                    let field_size = ty.bit_size()?;
+                    validate_bits_attributes_size(field_size, normal)?;
+                }
+                (MyType::Array(ty), BitField::Array(array)) => {
+                    let expected_elem_size = ty.elem.bit_size()?;
+
+                    for field in array.fields.iter() {
+                        validate_bits_attributes_size(expected_elem_size, field)?;
+                    }
+
+                    let expected_arr_size = ty.bit_size()?;
+                    let actual_arr_size = array.fields.len() as u32 * expected_elem_size;
+                    if actual_arr_size != expected_arr_size {
+                        return Err(Error::new_spanned(
+                            field,
+                            format!(
+                                "array size does not match. expected: {}, got: {}",
+                                expected_arr_size, actual_arr_size
+                            ),
+                        ));
+                    }
+                }
+
+                _ => return Err(Error::new_spanned(field, "type is not match")),
+            }
             Some(bit_field)
         } else {
             None
@@ -313,6 +363,15 @@ struct BitFieldNamed {
 }
 
 impl BitFieldNamed {
+    fn get_bit_attrs_sum(&self) -> Result<u32> {
+        let span = self.fields.span();
+        self.fields
+            .named
+            .iter()
+            .map(|field| get_bit_attr_val(&field.attrs, span))
+            .sum()
+    }
+
     fn gen_method(
         &self,
         method_prefix: &Ident,
@@ -329,27 +388,185 @@ impl BitFieldNamed {
             offset += bit_size;
         }
 
-        if offset != ty_bits(base_ty)? {
-            return Err(Error::new_spanned(
-                &self.fields,
-                format!(
-                    "sum of bits does not match. expected: {}, got: {}",
-                    ty_bits(base_ty)?,
-                    offset
-                ),
-            ));
-        }
-
         Ok(methods.into_iter().collect())
     }
 }
 
 impl Parse for BitFieldNamed {
     fn parse(input: ParseStream) -> Result<Self> {
-        Ok(Self {
-            fields: input.parse()?,
+        let fields = input.parse::<FieldsNamed>()?;
+
+        for field in fields.named.iter() {
+            let attrs_bit_size = get_bit_attr_val(&field.attrs, field.span())?;
+            let actual_bit_size = ty_bits(&field.ty)?;
+            if actual_bit_size < attrs_bit_size {
+                return Err(Error::new_spanned(
+                    field,
+                    format!(
+                        "field size {} is smaller than bits attribute {}",
+                        actual_bit_size, attrs_bit_size
+                    ),
+                ));
+            }
+        }
+
+        Ok(Self { fields })
+    }
+}
+
+impl Size for BitFieldNamed {
+    fn bit_size(&self) -> Result<u32> {
+        self.fields.named.iter().map(|v| ty_bits(&v.ty)).sum()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum MyType {
+    Array(MyArrayType),
+    Normal(MyNormalType),
+}
+
+impl MyType {
+    fn from_syn(ty: &Type) -> Result<Self> {
+        match ty {
+            Type::Array(TypeArray {
+                elem,
+                len:
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Int(lit_int),
+                        ..
+                    }),
+                ..
+            }) => Ok(MyType::Array(MyArrayType {
+                elem: Box::new(MyType::from_syn(elem)?),
+                len: lit_int.base10_parse()?,
+            })),
+
+            Type::Path(TypePath { path, .. }) => {
+                let ident = path
+                    .get_ident()
+                    .ok_or(Error::new_spanned(ty, "single type required"))?;
+
+                let kind = MyNormalTypeKind::from_str(ident.to_string().as_str())
+                    .map_err(|_| Error::new_spanned(ident, "unsupported type"))?;
+                Ok(MyType::Normal(MyNormalType {
+                    ident: ident.clone(),
+                    kind,
+                }))
+            }
+
+            _ => Err(Error::new_spanned(ty, "type should be array or integer")),
+        }
+    }
+}
+
+impl Size for MyType {
+    fn bit_size(&self) -> Result<u32> {
+        match self {
+            MyType::Array(a) => a.bit_size(),
+            MyType::Normal(n) => n.bit_size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct MyNormalType {
+    ident: Ident,
+    kind: MyNormalTypeKind,
+}
+
+impl Size for MyNormalType {
+    fn bit_size(&self) -> Result<u32> {
+        self.kind.bit_size()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MyNormalTypeKind {
+    Bool,
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+}
+
+impl Size for MyNormalTypeKind {
+    fn bit_size(&self) -> Result<u32> {
+        use MyNormalTypeKind::*;
+
+        Ok(match self {
+            Bool => 1,
+            U8 | I8 => 8,
+            U16 | I16 => 16,
+            U32 | I32 => 32,
+            U64 | I64 => 64,
         })
     }
+}
+
+impl FromStr for MyNormalTypeKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        use MyNormalTypeKind::*;
+
+        match s {
+            "bool" => Ok(Bool),
+            "u8" => Ok(U8),
+            "u16" => Ok(U16),
+            "u32" => Ok(U32),
+            "u64" => Ok(U64),
+            "i8" => Ok(I8),
+            "i16" => Ok(I16),
+            "i32" => Ok(I32),
+            "i64" => Ok(I64),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct MyArrayType {
+    elem: Box<MyType>,
+    len: u32,
+}
+
+impl Size for MyArrayType {
+    fn bit_size(&self) -> Result<u32> {
+        Ok(self.elem.bit_size()? * self.len)
+    }
+}
+
+trait Size {
+    fn bit_size(&self) -> Result<u32>;
+}
+
+fn get_bit_attr_val(attrs: &[Attribute], span: Span) -> Result<u32> {
+    let bits_attr = attrs
+        .iter()
+        .find(|v| v.path().is_ident("bits"))
+        .ok_or(Error::new(span, "bits attribute not found"))?;
+
+    let Attribute {
+        meta: Meta::List(MetaList { tokens, .. }),
+        ..
+    } = bits_attr
+    else {
+        return Err(Error::new_spanned(
+            bits_attr,
+            "invalid arg(s) to `bits` attribute",
+        ));
+    };
+
+    let bit_size = expect_t::<LitInt>
+        .parse2(tokens.clone())?
+        .base10_parse::<u32>()?;
+
+    Ok(bit_size)
 }
 
 fn gen_field_method(
@@ -365,37 +582,12 @@ fn gen_field_method(
         .as_ref()
         .ok_or(Error::new_spanned(field, "ident should not be None"))?;
 
-    let bits_attr = field
-        .attrs
-        .iter()
-        .find(|v| v.path().is_ident("bits"))
-        .ok_or(Error::new_spanned(field, "bits attribute not found"))?;
-    let Attribute {
-        meta: Meta::List(MetaList { tokens, .. }),
-        ..
-    } = bits_attr
-    else {
-        return Err(Error::new_spanned(bits_attr, "invalid arg"));
-    };
+    let bit_size = get_bit_attr_val(&field.attrs, field.span())?;
 
     let set_ident = format_ident!("set_{}_{}", prefix, field_ident);
     let get_ident = format_ident!("get_{}_{}", prefix, field_ident);
     let with_ident = format_ident!("with_{}_{}", prefix, field_ident);
     let ty = &field.ty;
-    let ty_bits_size = ty_bits(ty)?;
-    let bit_size = expect_t::<LitInt>
-        .parse2(tokens.clone())?
-        .base10_parse::<u32>()?;
-
-    if ty_bits_size < bit_size {
-        return Err(Error::new_spanned(
-            field,
-            format!(
-                "field size {} is smaller than bits attribute {}",
-                ty_bits_size, bit_size
-            ),
-        ));
-    }
 
     let cast_result = if ty_bits(ty)? == 1 {
         quote! {result != 0}
@@ -443,6 +635,41 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    fn test_compile_error() {
+        assert!(bitfield_struct_impl(quote! {
+            struct A {
+                data: u8 => {
+                    #[bits(1)]
+                    one: bool,
+                }
+            }
+        })
+        .is_err());
+
+        assert!(bitfield_struct_impl(quote! {
+            struct A {
+                data: u8 => {
+                    #[bits(2)]
+                    one: bool,
+                }
+            }
+        })
+        .is_err());
+
+        assert!(bitfield_struct_impl(quote! {
+            struct A {
+                data: [u8; 2] => [
+                    {
+                    #[bits(8)]
+                    one: u8,
+                    },
+                ]
+            }
+        })
+        .is_err());
+    }
+
+    #[test]
     fn test_bitfield() {
         assert_eq!(
             bitfield_struct_impl(quote! {
@@ -475,7 +702,7 @@ mod tests {
             .unwrap_or_else(Error::into_compile_error)
             .to_string(),
             quote! {
-                struct A<T, U> where T: Debug + Default {}
+                struct A<T> where T: Debug + Default {}
                 #[allow(non_snake_case)]
                 impl<T> A<T>
                 where
