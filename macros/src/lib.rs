@@ -1,9 +1,9 @@
 use syn::Error;
 
+mod bit_field;
 mod common;
 mod cstr16;
 mod derive_segment;
-mod reg;
 
 #[proc_macro]
 pub fn cstr16(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -55,7 +55,7 @@ pub fn cstr16(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 #[proc_macro]
 pub fn bitfield_struct(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    reg::bitfield_struct_impl(input.into())
+    bit_field::bitfield_struct_impl(input.into())
         .unwrap_or_else(Error::into_compile_error)
         .into()
 }

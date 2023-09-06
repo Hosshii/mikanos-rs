@@ -6,8 +6,8 @@ use syn::{
     parse::{Parse, ParseStream, Parser},
     punctuated::Punctuated,
     token::{Bracket, FatArrow, Semi, Struct},
-    Attribute, Error, Field, FieldsNamed, Ident, LitInt, Meta, MetaList, Result, Token, Type,
-    TypeArray, Visibility,
+    Attribute, Error, Field, FieldsNamed, Generics, Ident, LitInt, Meta, MetaList, Result, Token,
+    Type, TypeArray, Visibility, WhereClause,
 };
 
 use crate::common::{expect_t, ty_bits};
@@ -32,7 +32,7 @@ fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
         vis,
         struct_token,
         ident,
-
+        generics,
         fields,
         ..
     } = ItemBitFieldStruct::parse(input)?;
@@ -49,17 +49,17 @@ fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
         })
         .collect();
 
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let methods = fields.gen_method()?;
 
     Ok(quote! {
         #attrs
-        #[repr(C, packed)]
-        #vis #struct_token #ident {
+        #vis #struct_token #ident #ty_generics #where_clause {
             # ( #struct_fields ,)*
         }
 
         #[allow(non_snake_case)]
-        impl #ident {
+        impl #impl_generics #ident #ty_generics #where_clause {
             pub fn new() -> Self {
                 Self{
                     #struct_fields_init
@@ -68,7 +68,7 @@ fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
             #methods
         }
 
-        impl Default for #ident {
+        impl #impl_generics Default for #ident #ty_generics #where_clause {
             fn default() -> Self {
                 Self::new()
             }
@@ -81,6 +81,7 @@ struct ItemBitFieldStruct {
     pub vis: Visibility,
     pub struct_token: Struct,
     pub ident: Ident,
+    pub generics: Generics,
     pub fields: BitFieldStructFields,
     pub _semi_token: Option<Semi>,
 }
@@ -91,6 +92,16 @@ impl Parse for ItemBitFieldStruct {
         let vis = input.parse::<Visibility>()?;
         let struct_token = input.parse::<Token![struct]>()?;
         let ident = input.parse::<Ident>()?;
+        let generics = input.parse::<Generics>()?;
+        let where_clause = if input.lookahead1().peek(Token![where]) {
+            Some(input.parse::<WhereClause>()?)
+        } else {
+            None
+        };
+        let generics = Generics {
+            where_clause,
+            ..generics
+        };
 
         let content;
         braced!(content in input);
@@ -103,7 +114,7 @@ impl Parse for ItemBitFieldStruct {
             vis,
             struct_token,
             ident,
-
+            generics,
             fields,
             _semi_token,
         })
@@ -440,8 +451,8 @@ mod tests {
             .unwrap_or_else(Error::into_compile_error)
             .to_string(),
             quote! {
-                #[repr(C, packed)]
                 struct A {}
+                #[allow(non_snake_case)]
                 impl A {
                     pub fn new() -> Self {
                         Self {}
@@ -449,6 +460,36 @@ mod tests {
                 }
 
                 impl Default for A {
+                    fn default() -> Self {
+                        Self::new()
+                    }
+                }
+            }
+            .to_string()
+        );
+
+        assert_eq!(
+            bitfield_struct_impl(quote! {
+                struct A<T> where T: Debug + Default {}
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .to_string(),
+            quote! {
+                struct A<T, U> where T: Debug + Default {}
+                #[allow(non_snake_case)]
+                impl<T> A<T>
+                where
+                    T: Debug + Default
+                {
+                    pub fn new() -> Self {
+                        Self {}
+                    }
+                }
+
+                impl<T> Default for A<T>
+                where
+                    T: Debug + Default
+                {
                     fn default() -> Self {
                         Self::new()
                     }
@@ -470,10 +511,10 @@ mod tests {
             quote! {
                 #[derive(Debug)]
                 #[repr(C)]
-                #[repr(C, packed)]
                 pub struct A {
                     flag123: u16,
                 }
+                #[allow(non_snake_case)]
                 impl A {
                     pub fn new() -> Self {
                         Self {
@@ -529,11 +570,11 @@ mod tests {
             .to_string(),
             quote! {
                 #[derive(Debug)]
-                #[repr(C, packed)]
                 pub struct A {
                     flag123: u16,
                     flags: [u8; 2],
                 }
+                #[allow(non_snake_case)]
                 impl A {
                     pub fn new() -> Self {
                         Self {
