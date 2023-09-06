@@ -1,3 +1,5 @@
+mod endian;
 mod error;
-mod ring;
+mod register_map;
+mod ring_buf;
 mod trb;
