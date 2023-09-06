@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 
 use super::{
     error::{Error, Result},
-    trb::TRBBase,
+    trb::{Link, TRBRaw},
 };
 
 // #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,6 +56,14 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
         Ok(())
     }
 
+    pub fn push_overwrite(&mut self, v: T) {
+        if self.is_full() {
+            self.head += 1;
+        }
+
+        self.push(v).expect("push error")
+    }
+
     pub fn pop(&mut self) -> Option<T> {
         if self.is_empty() {
             None
@@ -73,6 +81,10 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
         let base = self.head / SIZE;
         let base = base * SIZE + idx;
         (self.head..self.tail).contains(&base)
+    }
+
+    pub fn as_ptr(&self) -> *const MaybeUninit<T> {
+        self.buf.as_ptr()
     }
 }
 
@@ -139,9 +151,56 @@ mod tests {
         assert!(v.is_full());
         assert_eq!(v.len(), SIZE);
     }
+
+    #[test]
+    fn test_push_overwrite() {
+        let mut v = RingBuffer::<usize, SIZE>::new();
+
+        for i in 0..SIZE {
+            v.push(i).unwrap();
+        }
+        assert!(v.push(0).is_err());
+
+        for i in SIZE..SIZE + 4 {
+            v.push_overwrite(i);
+            assert!(v.is_full());
+        }
+
+        for i in 0..SIZE {
+            assert_eq!(v.pop().unwrap(), i + 4);
+        }
+    }
 }
 
 /// Transfer or Communicate ring.
 struct TCRing<const SIZE: usize> {
-    ring_buf: RingBuffer<TRBBase, SIZE>,
+    ring_buf: RingBuffer<TRBRaw, SIZE>,
+    cycle_bit: bool,
+}
+
+impl<const SIZE: usize> TCRing<SIZE> {
+    /// SIZE must greater than 2.
+    pub fn new() -> Self {
+        debug_assert!(2 <= SIZE);
+
+        Self {
+            ring_buf: RingBuffer::<_, SIZE>::new(),
+            cycle_bit: false,
+        }
+    }
+
+    pub fn push(&mut self, v: TRBRaw) {
+        self.ring_buf.push_overwrite(v);
+        if self.ring_buf.len() == SIZE - 1 {
+            let link = Link::new(self.ring_buf.as_ptr() as *const ())
+                .set_toggle(true)
+                .set_cycle(self.cycle_bit);
+            let base = TRBRaw::from(link);
+            self.ring_buf.push_overwrite(base);
+
+            self.cycle_bit = !self.cycle_bit;
+
+            debug_assert!(self.ring_buf.is_full());
+        }
+    }
 }
