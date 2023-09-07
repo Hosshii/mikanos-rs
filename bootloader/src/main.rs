@@ -6,9 +6,9 @@ use bootloader::{
     error::{Error, Result, ToRusult},
     logger,
 };
+use common::info;
 use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr, slice};
 use kernel::{KernelArg, KernelMain};
-use log::info;
 use macros::cstr16;
 use uefi::{
     protocol::{
@@ -219,6 +219,7 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
 
     let kernel_main: KernelMain = unsafe { mem::transmute(entry_addr) };
+
     kernel_main(kernel_arg);
 }
 

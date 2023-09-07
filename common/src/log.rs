@@ -1,5 +1,3 @@
-#![no_std]
-
 use core::{
     fmt,
     sync::atomic::{AtomicU8, Ordering},
@@ -138,16 +136,20 @@ pub fn log_level_threshold() -> LogLevel {
     LogLevel::try_from(LOG_LEVEL_THRESHOLD.load(Ordering::SeqCst)).unwrap()
 }
 
+pub fn set_log_level_threshold(level: LogLevel) {
+    LOG_LEVEL_THRESHOLD.store(level.into(), Ordering::SeqCst);
+}
+
 #[macro_export]
 macro_rules! error {
     ($msg:expr $(,)?) => {
-        if $crate::log_level_threshold() <= $crate::LogLevel::Error {
-            $crate::logger().log(&$crate::Payload::new($crate::LogLevel::Error, ::core::format_args!($msg)))
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Error {
+            $crate::log::logger().log(&$crate::log::Payload::new($crate::log::LogLevel::Error, ::core::format_args!($msg)))
         }
     };
     ($fmt:expr, $($arg:tt)*) => {
-        if $crate::log_level_threshold() <= $crate::LogLevel::Error {
-            $crate::logger().log(&$crate::Payload::new($crate::LogLevel::Error, ::core::format_args!($fmt, $($arg)*)))
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Error {
+            $crate::log::logger().log(&$crate::log::Payload::new($crate::log::LogLevel::Error, ::core::format_args!($fmt, $($arg)*)))
         }
     };
 }
@@ -155,13 +157,13 @@ macro_rules! error {
 #[macro_export]
 macro_rules! info {
     ($msg:expr $(,)?) => {
-        if $crate::log_level_threshold() <= $crate::LogLevel::Info {
-            $crate::logger().log(&$crate::Payload::new($crate::LogLevel::Info, ::core::format_args!($msg)))
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Info {
+            $crate::log::logger().log(&$crate::log::Payload::new($crate::log::LogLevel::Info, ::core::format_args!($msg)))
         }
     };
     ($fmt:expr, $($arg:tt)*) => {
-        if $crate::log_level_threshold() <= $crate::LogLevel::Info {
-            $crate::logger().log(&$crate::Payload::new($crate::LogLevel::Info, ::core::format_args!($fmt, $($arg)*)))
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Info {
+            $crate::log::logger().log(&$crate::log::Payload::new($crate::log::LogLevel::Info, ::core::format_args!($fmt, $($arg)*)))
         }
     };
 }
@@ -169,17 +171,17 @@ macro_rules! info {
 #[macro_export]
 macro_rules! debug {
     ($msg:expr $(,)?) => {
-        if $crate::log_level_threshold() <= $crate::LogLevel::Debug {
-            $crate::logger().log(&$crate::Payload::new(
-                $crate::LogLevel::Error,
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Debug {
+            $crate::log::logger().log(&$crate::log::Payload::new(
+                $crate::log::LogLevel::Error,
                 ::core::format_args!($msg),
             ))
         }
     };
     ($fmt:expr, $($arg:tt)*) => {
-        if $crate::log_level_threshold() <= $crate::LogLevel::Error {
-            $crate::logger().log(&$crate::Payload::new(
-                $crate::LogLevel::Error,
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Error {
+            $crate::log::logger().log(&$crate::log::Payload::new(
+                $crate::log::LogLevel::Error,
                 ::core::format_args!($msg),
             ))
         }

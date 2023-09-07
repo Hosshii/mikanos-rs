@@ -1,7 +1,7 @@
 // 並列だと安全でない
 
+use common::log::{self, Log, Payload};
 use core::fmt::Write;
-use log::{Log, Payload};
 use uefi::{protocol::console::SimpleTextOutputProtocol, table::system_table::SystemTable};
 
 static mut LOGGER_INNER: Option<Logger> = None;

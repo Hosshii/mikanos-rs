@@ -9,4 +9,4 @@ edition = "2021"
 uefi = { path = "../uefi" }
 macros = { path = "../macros" }
 kernel = { path = "../kernel" }
-log = { path = "../log" }
+common = { path = "../common" }

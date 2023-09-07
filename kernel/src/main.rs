@@ -3,11 +3,13 @@
 
 use core::{arch::asm, panic::PanicInfo};
 
+use common::info;
 use kernel::{
     error::Result,
     graphic::{
         pixel::FrameBufferInfo, Color, PixelPosition, PixelWriter, RectWriter, StringWriter,
     },
+    logger,
     pci::Pci,
     println, KernelArg,
 };
@@ -52,6 +54,8 @@ fn panic(info: &PanicInfo) -> ! {
 // entry point
 #[no_mangle]
 pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
+    logger::init_logger();
+
     if let Err(e) = kernel_main_impl(arg) {
         println!("{:?}", e)
     }
@@ -62,6 +66,11 @@ pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
 fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let frame_buffer_info = FrameBufferInfo::from(arg);
     kernel::init(frame_buffer_info);
+
+    for i in 0..37 {
+        let num = kernel::console().row_num();
+        println!("line: {i}, {num}");
+    }
 
     let mut console = kernel::console_mut();
 
@@ -94,10 +103,11 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     println!("1234567890");
     println!("hello {}", "world");
 
-    for i in 0..35 {
+    for i in 0..40 {
         let num = kernel::console().row_num();
         println!("line: {i}, {num}");
     }
+    println!();
 
     for (y, row) in MOUSE_CURSOR_SHAPE.iter().enumerate() {
         for (x, c) in row.chars().enumerate() {
@@ -129,6 +139,8 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     for dev in pci.devices() {
         println!("{:?}", dev);
     }
+
+    info!("hello");
 
     Ok(())
 }

@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod graphic;
+pub mod logger;
 pub mod pci;
 
 #[repr(C)]

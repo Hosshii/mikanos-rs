@@ -6,7 +6,7 @@ members = [
     "uefi",
     "macros",
     "usb",
-    "log"
+    "common",
 ]
 
 resolver = "2"
