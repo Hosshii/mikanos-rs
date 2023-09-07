@@ -4,11 +4,11 @@
 use bootloader::{
     elf::{Elf, PT_LOAD},
     error::{Error, Result, ToRusult},
-    info, log,
+    logger,
 };
-use kernel::{KernelArg, KernelMain};
-
 use core::{arch::asm, fmt::Write, mem, panic::PanicInfo, ptr, slice};
+use kernel::{KernelArg, KernelMain};
+use log::info;
 use macros::cstr16;
 use uefi::{
     protocol::{
@@ -36,7 +36,7 @@ fn panic(_info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub extern "efiapi" fn efi_main(image_handle: Handle, mut system_table: SystemTable) -> Status {
-    unsafe { log::init_logger(&mut system_table) }
+    unsafe { logger::init_logger(&mut system_table) }
 
     match main_impl(image_handle, &mut system_table) {
         Ok(_) => Status::SUCCRSS,
@@ -219,7 +219,6 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
 
     let kernel_main: KernelMain = unsafe { mem::transmute(entry_addr) };
-
     kernel_main(kernel_arg);
 }
 

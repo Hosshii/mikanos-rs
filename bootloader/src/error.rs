@@ -2,7 +2,7 @@ use core::fmt;
 
 use uefi::types::Status;
 
-use crate::info;
+use log::info;
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
