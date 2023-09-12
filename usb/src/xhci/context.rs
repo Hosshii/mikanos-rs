@@ -144,3 +144,12 @@ struct DeviceContext {
     slot_context: SlotContext,
     device_contexts: [EndpointContxt; MAX_DEVICE_CONTEXT],
 }
+
+impl DeviceContext {
+    pub fn new() -> Self {
+        Self {
+            slot_context: SlotContext::default(),
+            device_contexts: [EndpointContxt::default(); MAX_DEVICE_CONTEXT],
+        }
+    }
+}

@@ -3,16 +3,18 @@
 
 use core::{arch::asm, panic::PanicInfo};
 
-use common::info;
+use common::{debug, info};
 use kernel::{
-    error::Result,
+    error::Error as LibError,
     graphic::{
-        pixel::FrameBufferInfo, Color, PixelPosition, PixelWriter, RectWriter, StringWriter,
+        error::Error as GraphicError, pixel::FrameBufferInfo, Color, PixelPosition, PixelWriter,
+        RectWriter, StringWriter,
     },
     logger,
-    pci::Pci,
+    pci::{Device, Pci, PciExtUsb as _},
     println, KernelArg,
 };
+use usb::xhci::Controller;
 
 const MOUSE_CURSOR_HEIGHT: usize = 24;
 const MOUSE_CURSOR_SHAPE: [&str; MOUSE_CURSOR_HEIGHT] = [
@@ -67,11 +69,6 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let frame_buffer_info = FrameBufferInfo::from(arg);
     kernel::init(frame_buffer_info);
 
-    for i in 0..37 {
-        let num = kernel::console().row_num();
-        println!("line: {i}, {num}");
-    }
-
     let mut console = kernel::console_mut();
 
     for x in 0..console.graphic().info().horizontal_resolution() {
@@ -103,12 +100,6 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     println!("1234567890");
     println!("hello {}", "world");
 
-    for i in 0..40 {
-        let num = kernel::console().row_num();
-        println!("line: {i}, {num}");
-    }
-    println!();
-
     for (y, row) in MOUSE_CURSOR_SHAPE.iter().enumerate() {
         for (x, c) in row.chars().enumerate() {
             let pos = PixelPosition::new(200 + x as u32, 100 + y as u32);
@@ -137,10 +128,24 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     println!("scan all bus");
 
     for dev in pci.devices() {
-        println!("{:?}", dev);
+        println!("{:?}", dev.class_code());
     }
 
-    info!("hello");
+    let usb = pci
+        .find_usb()
+        .ok_or(Error::custom("cannot find usb device"))?;
+    let bar = read_xhci_bar(usb)?;
+    info!("bar: {:p}", bar as *const u8);
+
+    if usb.read_vender_id()?.is_intel() {
+        pci.switch_ehci2xhci(usb)?;
+    }
+
+    let xhci = unsafe { Controller::new(bar) };
+
+    info!("initialize usb...");
+    let xhci = xhci.initialize();
+    info!("initialize finished!");
 
     Ok(())
 }
@@ -162,4 +167,43 @@ fn halt() -> ! {
             asm! {"wfi"}
         }
     }
+}
+
+#[derive(Debug)]
+struct Error(ErrorKind);
+
+impl Error {
+    fn custom(v: &'static str) -> Self {
+        Self(ErrorKind::Custom(v))
+    }
+}
+
+impl From<LibError> for Error {
+    fn from(value: LibError) -> Self {
+        Self(ErrorKind::Lib(value))
+    }
+}
+
+impl From<GraphicError> for Error {
+    fn from(value: GraphicError) -> Self {
+        Self(ErrorKind::Graphic(value))
+    }
+}
+
+#[derive(Debug)]
+enum ErrorKind {
+    Lib(LibError),
+    Graphic(GraphicError),
+    Custom(&'static str),
+}
+
+type Result<T> = core::result::Result<T, Error>;
+
+fn read_xhci_bar(dev: &Device) -> Result<u64> {
+    let bar0 = dev.read_bar(0)? as u64;
+    debug!("bar0: {}", bar0);
+    let bar1 = dev.read_bar(1)? as u64;
+    debug!("bar1: {}", bar1);
+
+    Ok((bar1 << 32) | (bar0 & !0xf))
 }

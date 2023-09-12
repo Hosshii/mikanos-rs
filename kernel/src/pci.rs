@@ -53,6 +53,7 @@ mod arch {
 }
 
 use arch::*;
+use common::debug;
 
 fn write_address(address: u32) {
     io_out32(CONFIG_ADDRESS, address);
@@ -82,14 +83,25 @@ fn make_address(bus: u8, device: u8, function: u8, reg_addr: u8) -> Result<u32> 
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-struct VenderID(u16);
+pub struct VenderID(u16);
 impl VenderID {
+    const INTEL: u16 = 0x8086;
+    const INVALID: u16 = 0xffff;
+
     pub fn new(v: u16) -> Self {
         Self(v)
     }
 
     pub fn is_invalid(self) -> bool {
-        self.0 == 0xffff
+        self.0 == Self::INVALID
+    }
+
+    pub fn intel() -> Self {
+        Self::new(Self::INTEL)
+    }
+
+    pub fn is_intel(&self) -> bool {
+        self.0 == Self::INTEL
     }
 }
 
@@ -130,18 +142,15 @@ fn read_class_code(bus: u8, device: u8, function: u8) -> Result<ClassCode> {
     let addr = make_address(bus, device, function, 0x08)?;
     write_address(addr);
     let reg = read_data();
-    let cc = ClassCode {
-        base: (reg >> 24) as u8,
-        sub: (reg >> 16) as u8,
-        interface: (reg >> 8) as u8,
-    };
+    let cc = ClassCode::new((reg >> 24) as u8, (reg >> 16) as u8, (reg >> 8) as u8);
 
     Ok(cc)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum DeviceType {
+pub enum DeviceType {
     PciPciBridge,
+    UsbController,
     Unknown,
 }
 
@@ -149,16 +158,41 @@ impl From<ClassCode> for DeviceType {
     fn from(value: ClassCode) -> Self {
         match (value.base, value.sub) {
             (0x06, 0x04) => DeviceType::PciPciBridge,
+            (0x0c, 0x03) => DeviceType::UsbController,
             _ => DeviceType::Unknown,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-struct ClassCode {
+pub struct Interface(u8);
+
+impl Interface {
+    pub fn new(v: u8) -> Self {
+        Self(v)
+    }
+}
+
+pub enum UsbType {
+    XHci,
+}
+
+impl TryFrom<Interface> for UsbType {
+    type Error = ();
+
+    fn try_from(value: Interface) -> core::result::Result<Self, Self::Error> {
+        match value.0 {
+            0x30 => Ok(UsbType::XHci),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct ClassCode {
     base: u8,
     sub: u8,
-    interface: u8,
+    interface: Interface,
 }
 
 impl ClassCode {
@@ -166,8 +200,12 @@ impl ClassCode {
         Self {
             base,
             sub,
-            interface,
+            interface: Interface::new(interface),
         }
+    }
+
+    pub fn interface(&self) -> Interface {
+        self.interface
     }
 }
 
@@ -280,6 +318,58 @@ impl Default for Pci {
     }
 }
 
+impl PciExtUsb for Pci {
+    fn find_usb(&self) -> Option<&Device> {
+        self.devices()
+            .iter()
+            .fold(None, |acc: Option<&Device>, cur| {
+                match (
+                    DeviceType::from(cur.class_code()),
+                    UsbType::try_from(cur.class_code().interface()),
+                ) {
+                    (DeviceType::UsbController, Ok(UsbType::XHci)) => match acc {
+                        Some(device) => {
+                            if device.read_vender_id().ok()?.is_intel() {
+                                Some(device)
+                            } else {
+                                Some(cur)
+                            }
+                        }
+                        None => Some(cur),
+                    },
+                    _ => None,
+                }
+            })
+    }
+
+    fn switch_ehci2xhci(&self, usb_dev: &Device) -> Result<()> {
+        let intel_ehc_exits = self.devices().iter().any(|dev| {
+            matches!(
+                (
+                    DeviceType::from(dev.class_code()),
+                    UsbType::try_from(dev.class_code().interface())
+                ),
+                (DeviceType::UsbController, Ok(UsbType::XHci))
+            ) && dev.read_vender_id().map(|v| v.is_intel()).unwrap_or(false)
+        });
+
+        if !intel_ehc_exits {
+            return Ok(());
+        }
+
+        let super_speed_port = usb_dev.read_reg(0xdc)?; // USB3PRM
+        usb_dev.write_reg(0xd8, super_speed_port)?;
+        let ehci2xhci_ports = usb_dev.read_reg(0xd4)?;
+        usb_dev.write_reg(0xd0, ehci2xhci_ports)?;
+        debug!(
+            "switch ehci to xhci: ss= {}, xhci= {}",
+            super_speed_port, ehci2xhci_ports
+        );
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Device {
     bus: u8,
@@ -305,4 +395,48 @@ impl Device {
             class_code,
         }
     }
+
+    pub fn read_vender_id(&self) -> Result<VenderID> {
+        read_vender_id(self.bus, self.device, self.function)
+    }
+
+    pub fn read_bar(&self, bar_index: u8) -> Result<u32> {
+        const BAR_OFFSET: u8 = 0x10;
+        if 5 < bar_index {
+            return Err(Error::out_of_range_bar());
+        }
+
+        let addr = make_address(
+            self.bus,
+            self.device,
+            self.function,
+            BAR_OFFSET + 4 * bar_index,
+        )?;
+        write_address(addr);
+        let bar = read_data();
+
+        Ok(bar)
+    }
+
+    fn read_reg(&self, reg: u8) -> Result<u32> {
+        let addr = make_address(self.bus, self.device, self.function, reg)?;
+        write_address(addr);
+        Ok(read_data())
+    }
+
+    fn write_reg(&self, reg: u8, v: u32) -> Result<()> {
+        let addr = make_address(self.bus, self.device, self.function, reg)?;
+        write_address(addr);
+        write_data(v);
+        Ok(())
+    }
+
+    pub fn class_code(&self) -> ClassCode {
+        self.class_code
+    }
+}
+
+pub trait PciExtUsb {
+    fn find_usb(&self) -> Option<&Device>;
+    fn switch_ehci2xhci(&self, usb_dev: &Device) -> Result<()>;
 }

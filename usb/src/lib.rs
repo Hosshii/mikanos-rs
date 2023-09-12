@@ -1,3 +1,3 @@
 #![no_std]
 
-mod xhci;
+pub mod xhci;
