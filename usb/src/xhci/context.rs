@@ -142,7 +142,7 @@ const MAX_DEVICE_CONTEXT: usize = 31;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DeviceContext {
+pub struct DeviceContext {
     slot_context: SlotContext,
     device_contexts: [EndpointContxt; MAX_DEVICE_CONTEXT],
 }
@@ -153,5 +153,11 @@ impl DeviceContext {
             slot_context: SlotContext::default(),
             device_contexts: [EndpointContxt::default(); MAX_DEVICE_CONTEXT],
         }
+    }
+}
+
+impl Default for DeviceContext {
+    fn default() -> Self {
+        Self::new()
     }
 }

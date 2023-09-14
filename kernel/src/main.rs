@@ -4,7 +4,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-use core::{arch::asm, panic::PanicInfo};
+use core::{arch::asm, panic::PanicInfo, pin::pin};
 
 use common::{debug, info};
 use kernel::{
@@ -17,7 +17,7 @@ use kernel::{
     pci::{Device, Pci, PciExtUsb as _},
     println, KernelArg,
 };
-use usb::xhci::Controller;
+use usb::xhci::{Context, Controller};
 
 const MOUSE_CURSOR_HEIGHT: usize = 24;
 const MOUSE_CURSOR_SHAPE: [&str; MOUSE_CURSOR_HEIGHT] = [
@@ -147,7 +147,9 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
         pci.switch_ehci2xhci(usb)?;
     }
 
-    let xhci = unsafe { Controller::new(bar) };
+    let cx: Context = Context::zeroed();
+    let cx = pin!(cx);
+    let xhci = unsafe { Controller::new(bar, cx) };
 
     info!("initialize usb...");
     let xhci = xhci.initialize();

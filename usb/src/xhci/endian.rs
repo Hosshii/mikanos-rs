@@ -1,15 +1,22 @@
-pub trait Endian {
-    fn from_le(v: Self) -> Self;
-    fn from_be(v: Self) -> Self;
-
-    fn to_le(self) -> Self;
-    fn to_be(self) -> Self;
+pub trait EndianFrom<T = Self> {
+    fn from_le(v: T) -> Self;
+    fn from_be(v: T) -> Self;
+    fn from_ne(v: T) -> Self;
 }
+
+pub trait EndianInto<T = Self> {
+    fn to_le(self) -> T;
+    fn to_be(self) -> T;
+    fn to_ne(self) -> T;
+}
+
+pub trait Endian<T = Self>: EndianFrom<T> + EndianInto<T> {}
+impl<T> Endian<T> for T where T: EndianFrom<T> + EndianInto<T> {}
 
 macro_rules! impl_endian {
     ($($type:ty),*) => {
         $(
-            impl Endian for $type {
+            impl EndianFrom for $type {
                 fn from_le(v: Self) -> Self {
                     <$type>::from_le(v)
                 }
@@ -18,6 +25,12 @@ macro_rules! impl_endian {
                     <$type>::from_be(v)
                 }
 
+                fn from_ne(v: Self) -> Self {
+                    v
+                }
+            }
+
+            impl EndianInto for $type {
                 fn to_le(self) -> Self {
                     self.to_le()
                 }
@@ -25,83 +38,13 @@ macro_rules! impl_endian {
                 fn to_be(self) -> Self {
                     self.to_be()
                 }
+
+                fn to_ne(self) -> Self {
+                    self
+                }
             }
         )*
     };
 }
 
 impl_endian!(u8, u16, u32, u64, u128, i8, i32, i64, i128);
-
-macro_rules! declare_endian_be {
-    ($($type:ty,$id:ident);* $(;)?) => {
-        pub use declare_endian_be_mod::*;
-
-        mod declare_endian_be_mod {
-            $(
-                #[repr(transparent)]
-                #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-                pub struct $id($type);
-
-                impl $id {
-                    pub fn new(v: $type) -> Self {
-                        Self(v.to_be())
-                    }
-
-                    pub fn from_unchecked(v: $type) -> Self {
-                        Self(v)
-                    }
-                }
-
-                impl From<$type> for $id {
-                    fn from(v: $type) -> $id {
-                        $id::new(v)
-                    }
-                }
-            )*
-        }
-    };
-}
-
-macro_rules! declare_endian_le {
-    ($($type:ty,$id:ident);* $(;)?) => {
-        pub use declare_endian_le_mod::*;
-
-        mod declare_endian_le_mod {
-            $(
-                #[repr(transparent)]
-                #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-                pub struct $id($type);
-
-                impl $id {
-                    pub fn new(v: $type) -> Self {
-                        Self(v.to_le())
-                    }
-
-                    pub fn from_unchecked(v: $type) -> Self {
-                        Self(v)
-                    }
-                }
-
-                impl From<$type> for $id {
-                    fn from(v: $type) -> $id {
-                        $id::new(v)
-                    }
-                }
-            )*
-        }
-    };
-}
-
-declare_endian_be!(
-    u8,  BeU8;
-    u16, BeU16;
-    u32, BeU32;
-    u64, BeU64;
-);
-
-declare_endian_le!(
-    u8,  LeU8;
-    u16, LeU16;
-    u32, LeU32;
-    u64, LeU64;
-);

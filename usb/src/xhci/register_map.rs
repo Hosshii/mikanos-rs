@@ -1,4 +1,4 @@
-use super::endian::Endian;
+use super::endian::{Endian, EndianInto};
 use core::{marker::PhantomData, mem::MaybeUninit, slice};
 use macros::{bitfield_struct, FromSegment, IntoSegment};
 
@@ -247,6 +247,18 @@ bitfield_struct! {
         }
     }
 
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct RtsOffset {
+        data: u32 => {
+            #[bits(5)]
+            _rsvdz: u8,
+            #[bits(27)]
+            offset: u32,
+        }
+    }
+
 }
 
 #[derive(Debug)]
@@ -256,6 +268,7 @@ pub struct CapabilityRegisters<'a> {
     hcs_paracm1: RegisterMap<'a, 1, HcsParams1, ReadOnly>,
     hcs_paracm2: RegisterMap<'a, 1, HcsParams2, ReadOnly>,
     hcs_params3: RegisterMap<'a, 1, HcsParams3, ReadOnly>,
+    rts_offset: RegisterMap<'a, 1, RtsOffset, ReadOnly>,
 }
 
 impl<'a> CapabilityRegisters<'a> {
@@ -264,6 +277,8 @@ impl<'a> CapabilityRegisters<'a> {
     pub const HCS_PARAMS1_OFFSET: usize = 0x04;
     pub const HCS_PARAMS2_OFFSET: usize = 0x08;
     pub const HCS_PARAMS3_OFFSET: usize = 0x0C;
+
+    pub const RTS_OFFSET_OFFSET: usize = 0x18;
 
     /// # Safety
     /// base is the beginnint of the host controller's MMIO address space.
@@ -274,6 +289,7 @@ impl<'a> CapabilityRegisters<'a> {
             hcs_paracm1: RegisterMap::from_raw(base.add(Self::HCS_PARAMS1_OFFSET).cast()),
             hcs_paracm2: RegisterMap::from_raw(base.add(Self::HCS_PARAMS2_OFFSET).cast()),
             hcs_params3: RegisterMap::from_raw(base.add(Self::HCS_PARAMS3_OFFSET).cast()),
+            rts_offset: RegisterMap::from_raw(base.add(Self::RTS_OFFSET_OFFSET).cast()),
         }
     }
 
@@ -295,6 +311,10 @@ impl<'a> CapabilityRegisters<'a> {
 
     pub fn hcs_params3(&self) -> &RegisterMap<'a, 1, HcsParams3, ReadOnly> {
         &self.hcs_params3
+    }
+
+    pub fn rts_offset(&self) -> &RegisterMap<'a, 1, RtsOffset, ReadOnly> {
+        &self.rts_offset
     }
 }
 
@@ -370,6 +390,56 @@ bitfield_struct! {
             _rsvdz3: u32,
         }
     }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct CommandRingControl {
+        command_ring_ptr_lo: u32 => {
+            #[bits(1)]
+            ring_cycle_state: bool,
+            #[bits(1)]
+            command_stop: bool,
+            #[bits(1)]
+            command_abort: bool,
+            #[bits(1)]
+            command_ring_running: bool,
+            #[bits(2)]
+            _rsvdp: u8,
+            #[bits(26)]
+            data: u32,
+        },
+        command_ring_ptr_hi: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Dcbaap {
+        ptr_lo: u32 => {
+            #[bits(6)]
+            _rsvdz: u8,
+            #[bits(26)]
+            ptr_lo: u32,
+        },
+        ptr_hi: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Configure {
+        data: u32 => {
+            #[bits(8)]
+            max_device_slots_enabled: u8,
+            #[bits(1)]
+            u3_entry_enable: bool,
+            #[bits(1)]
+            configuration_information_enable: bool,
+            #[bits(22)]
+            _rsvdp: u32,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -378,9 +448,9 @@ pub struct OperationalRegisters<'a> {
     usb_status: RegisterMap<'a, 1, UsbStatus, ReadWrite>,
     _page_size: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
     _device_notification_control: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
-    _command_ring_control: RegisterMap<'a, 1, RsvdZU16, ReadWrite>,
-    _device_context_base_address_array_pointer: RegisterMap<'a, 1, RsvdZU64, ReadWrite>,
-    _configure: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
+    command_ring_control: RegisterMap<'a, 2, CommandRingControl, ReadWrite>,
+    device_context_base_address_array_pointer: RegisterMap<'a, 2, Dcbaap, ReadWrite>,
+    configure: RegisterMap<'a, 1, Configure, ReadWrite>,
 }
 
 impl<'a> OperationalRegisters<'a> {
@@ -393,7 +463,7 @@ impl<'a> OperationalRegisters<'a> {
     pub const CONFIGUR_OFFSET: usize = 0x38;
 
     /// # Safety
-    /// base is the beginnint of the host controller's MMIO address space.
+    /// base is the beginning of the host controller's MMIO address space.
     pub unsafe fn new(base: *mut u8) -> Self {
         Self {
             usb_command: RegisterMap::from_raw_mut(base.add(Self::USB_COMMAND_OFFSET).cast()),
@@ -402,14 +472,14 @@ impl<'a> OperationalRegisters<'a> {
             _device_notification_control: RegisterMap::from_raw_mut(
                 base.add(Self::DEVICE_NOTIFICATION_CONTROL_OFFSET).cast(),
             ),
-            _command_ring_control: RegisterMap::from_raw_mut(
+            command_ring_control: RegisterMap::from_raw_mut(
                 base.add(Self::COMMAND_RING_CONTROL_OFFSET).cast(),
             ),
-            _device_context_base_address_array_pointer: RegisterMap::from_raw_mut(
+            device_context_base_address_array_pointer: RegisterMap::from_raw_mut(
                 base.add(Self::DEVICE_CONTEXT_BASE_ADDRESS_ARRAY_POINTER_OFFSET)
                     .cast(),
             ),
-            _configure: RegisterMap::from_raw_mut(base.add(Self::CONFIGUR_OFFSET).cast()),
+            configure: RegisterMap::from_raw_mut(base.add(Self::CONFIGUR_OFFSET).cast()),
         }
     }
 
@@ -427,5 +497,182 @@ impl<'a> OperationalRegisters<'a> {
 
     pub fn usb_status_mut(&mut self) -> &mut RegisterMap<'a, 1, UsbStatus, ReadWrite> {
         &mut self.usb_status
+    }
+
+    pub fn configure(&self) -> &RegisterMap<'a, 1, Configure, ReadWrite> {
+        &self.configure
+    }
+
+    pub fn configure_mut(&mut self) -> &mut RegisterMap<'a, 1, Configure, ReadWrite> {
+        &mut self.configure
+    }
+
+    pub fn device_context_base_address_array_pointer(
+        &self,
+    ) -> &RegisterMap<'a, 2, Dcbaap, ReadWrite> {
+        &self.device_context_base_address_array_pointer
+    }
+
+    pub fn device_context_base_address_array_pointer_mut(
+        &mut self,
+    ) -> &mut RegisterMap<'a, 2, Dcbaap, ReadWrite> {
+        &mut self.device_context_base_address_array_pointer
+    }
+
+    pub fn command_ring_control(&self) -> &RegisterMap<'a, 2, CommandRingControl, ReadWrite> {
+        &self.command_ring_control
+    }
+
+    pub fn command_ring_control_mut(
+        &mut self,
+    ) -> &mut RegisterMap<'a, 2, CommandRingControl, ReadWrite> {
+        &mut self.command_ring_control
+    }
+}
+
+bitfield_struct! {
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Erstsz {
+        data: u32 => {
+            #[bits(16)]
+            event_ring_segment_table_size: u16,
+            #[bits(16)]
+            _rsvdp: u16,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Erstba {
+        data: u64 => {
+            #[bits(6)]
+            _rsvdp: u8,
+            #[bits(58)]
+            ptr: u64,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Erdp {
+        data: u64 => {
+            #[bits(3)]
+            dequeue_erst_segment_index: u8,
+            #[bits(1)]
+            even_handler_busy: bool,
+            #[bits(60)]
+            ptr: u64,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InterrupterRegisterSet<'a> {
+    _interrupt_management: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
+    _interrupt_moderation: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
+    event_ring_segment_table_size: RegisterMap<'a, 1, Erstsz, ReadWrite>,
+    event_ring_segment_table_base_address: RegisterMap<'a, 1, Erstba, ReadWrite>,
+    event_ring_dequeue_pointer: RegisterMap<'a, 1, Erdp, ReadWrite>,
+}
+
+impl<'a> InterrupterRegisterSet<'a> {
+    pub const INTERRUPT_MANAGEMENT_OFFSET: usize = 0x00;
+    pub const INTERRUPT_MODERATION_OFFSET: usize = 0x04;
+    pub const EVENT_RING_SEGMENT_TABLE_SIZE_OFFSET: usize = 0x08;
+    pub const EVENT_RING_SEGMENT_TABLE_BASE_ADDRESS_OFFSET: usize = 0x10;
+    pub const EVENT_RING_DEQUEUE_POINTER_OFFSET: usize = 0x18;
+
+    /// # Safety
+    /// base is Runtime Base + 0x20 + (32 * idx)
+    pub unsafe fn new(base: *mut u8) -> Self {
+        Self {
+            _interrupt_management: RegisterMap::from_raw_mut(
+                base.add(Self::INTERRUPT_MANAGEMENT_OFFSET).cast(),
+            ),
+            _interrupt_moderation: RegisterMap::from_raw_mut(
+                base.add(Self::INTERRUPT_MODERATION_OFFSET).cast(),
+            ),
+            event_ring_segment_table_size: RegisterMap::from_raw_mut(
+                base.add(Self::EVENT_RING_SEGMENT_TABLE_SIZE_OFFSET).cast(),
+            ),
+            event_ring_segment_table_base_address: RegisterMap::from_raw_mut(
+                base.add(Self::EVENT_RING_SEGMENT_TABLE_BASE_ADDRESS_OFFSET)
+                    .cast(),
+            ),
+            event_ring_dequeue_pointer: RegisterMap::from_raw_mut(
+                base.add(Self::EVENT_RING_DEQUEUE_POINTER_OFFSET).cast(),
+            ),
+        }
+    }
+
+    pub fn event_ring_segment_table_size(&self) -> &RegisterMap<'a, 1, Erstsz, ReadWrite> {
+        &self.event_ring_segment_table_size
+    }
+
+    pub fn event_ring_segment_table_size_mut(
+        &mut self,
+    ) -> &mut RegisterMap<'a, 1, Erstsz, ReadWrite> {
+        &mut self.event_ring_segment_table_size
+    }
+
+    pub fn event_ring_segment_table_base_address(&self) -> &RegisterMap<'a, 1, Erstba, ReadWrite> {
+        &self.event_ring_segment_table_base_address
+    }
+
+    pub fn event_ring_segment_table_base_address_mut(
+        &mut self,
+    ) -> &mut RegisterMap<'a, 1, Erstba, ReadWrite> {
+        &mut self.event_ring_segment_table_base_address
+    }
+
+    pub fn event_ring_dequeue_pointer(&self) -> &RegisterMap<'a, 1, Erdp, ReadWrite> {
+        &self.event_ring_dequeue_pointer
+    }
+
+    pub fn event_ring_dequeue_pointer_mut(&mut self) -> &mut RegisterMap<'a, 1, Erdp, ReadWrite> {
+        &mut self.event_ring_dequeue_pointer
+    }
+}
+
+pub const INTERRUPTER_REGISTER_SET_NUM: usize = 1;
+#[derive(Debug)]
+pub struct RuntimeRegisters<'a> {
+    _microframe_index: RegisterMap<'a, 1, RsvdZU32, ReadOnly>,
+    interrupter_register_sets: [InterrupterRegisterSet<'a>; INTERRUPTER_REGISTER_SET_NUM],
+}
+
+impl<'a> RuntimeRegisters<'a> {
+    pub const INTERRUPTER_REGISTER_SET_NUM: usize = INTERRUPTER_REGISTER_SET_NUM;
+    pub const MICROFRAME_INDEX_OFFSET: usize = 0x00;
+    pub const INTERRUPTER_REGISTER_OFFSET: usize = 0x20;
+
+    /// # Safety
+    /// base is the beginning of the Runtime Register space.
+    pub unsafe fn new(base: *mut u8) -> Self {
+        let interrupter_register_sets = [0; Self::INTERRUPTER_REGISTER_SET_NUM].map(|idx| {
+            InterrupterRegisterSet::new(base.add(Self::INTERRUPTER_REGISTER_OFFSET + (32 * idx)))
+        });
+        Self {
+            _microframe_index: RegisterMap::from_raw(
+                base.add(Self::MICROFRAME_INDEX_OFFSET).cast(),
+            ),
+            interrupter_register_sets,
+        }
+    }
+
+    pub fn get_interrupter_register_sets(
+        &self,
+    ) -> &[InterrupterRegisterSet<'a>; INTERRUPTER_REGISTER_SET_NUM] {
+        &self.interrupter_register_sets
+    }
+
+    pub fn get_interrupter_register_sets_mut(
+        &mut self,
+    ) -> &mut [InterrupterRegisterSet<'a>; INTERRUPTER_REGISTER_SET_NUM] {
+        &mut self.interrupter_register_sets
     }
 }

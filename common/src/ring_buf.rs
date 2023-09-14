@@ -17,9 +17,11 @@ pub enum ErrorKind {
     RingBufferFull,
 }
 
-#[derive(Debug)]
 /// スタックに確保されるリングバッファ。
 /// SIZE 分の要素を入れられる。
+/// ptrは`RingBuffer`とおなじアライメントになる
+#[derive(Debug)]
+#[repr(C)]
 pub struct RingBuffer<T, const SIZE: usize> {
     buf: [MaybeUninit<T>; SIZE],
     tail: usize,
@@ -123,6 +125,10 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
 
     pub fn as_ptr(&self) -> *const MaybeUninit<T> {
         self.buf.as_ptr()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<T> {
+        self.buf.as_mut_ptr()
     }
 }
 
