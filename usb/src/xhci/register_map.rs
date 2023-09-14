@@ -155,24 +155,28 @@ pub trait FromSegment<const N: usize> {
 bitfield_struct! {
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     struct RsvdZU8 {
         data: u8,
     }
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     struct RsvdZU16 {
         data: u16,
     }
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     struct RsvdZU32 {
         data: u32,
     }
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     struct RsvdZU64 {
         data: u64,
     }
@@ -181,18 +185,21 @@ bitfield_struct! {
 bitfield_struct! {
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct CapLength {
         data: u8,
     }
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct HciVersion {
         data: u16,
     }
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct HcsParams1 {
         data: u32 => {
             #[bits(8)]
@@ -208,6 +215,7 @@ bitfield_struct! {
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct HcsParams2 {
         data: u32 => {
             #[bits(4)]
@@ -227,6 +235,7 @@ bitfield_struct! {
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct HcsParams3 {
         data: u32 => {
             #[bits(8)]
@@ -292,6 +301,7 @@ impl<'a> CapabilityRegisters<'a> {
 bitfield_struct! {
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct UsbCommand {
         data: u32 => {
             #[bits(1)]
@@ -331,6 +341,7 @@ bitfield_struct! {
 
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct UsbStatus {
         data: u32 => {
             #[bits(1)]

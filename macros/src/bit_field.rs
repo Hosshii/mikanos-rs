@@ -9,13 +9,10 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Bracket, FatArrow, Semi, Struct},
-    Attribute, Error, Expr, ExprLit, Field, FieldMutability, FieldsNamed, Generics, Ident, Lit,
-    LitInt, Meta, MetaList, Result, Token, Type, TypeArray, TypePath, Visibility, WhereClause,
+    Attribute, Error, Expr, ExprLit, Field, FieldsNamed, Generics, Ident, Lit, LitInt, LitStr,
+    Meta, MetaList, MetaNameValue, Result, Token, Type, TypeArray, TypePath, Visibility,
+    WhereClause,
 };
-
-trait Validate {
-    fn validate(&self) -> Result<()>;
-}
 
 use crate::common::{expect_t, ty_bits};
 
@@ -34,6 +31,35 @@ fn parse_bitfield_structs(input: ParseStream) -> Result<TokenStream> {
 }
 
 fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
+    fn get_endian_attr_val(attrs: &[&Attribute]) -> Result<Endian> {
+        match attrs {
+            [] => Ok(Endian::Native),
+            [attr] => {
+                let Meta::NameValue(MetaNameValue {
+                    value: x,..
+                        // Expr::Lit(ExprLit {
+                        //     lit: Lit::Str(ref x),
+                        //     ..
+                        // }),
+                }) = &attr.meta
+                else {
+                    return Err(Error::new_spanned(attr, "endian is not specified"));
+                };
+                let endian = expect_t::<LitStr>.parse2(x.to_token_stream())?.value();
+
+                Endian::from_str(&endian).map_err(|_| {
+                    Error::new_spanned(attr, "endian must be one of `little`, `big` or `nabive`")
+                })
+            }
+            [first, .., last] => {
+                let first_span = first.span();
+                let last_span = last.span();
+                let span = first_span.join(last_span).unwrap();
+                Err(Error::new(span, "endian attribute must be 0 or 1"))
+            }
+        }
+    }
+
     let ItemBitFieldStruct {
         attrs,
         vis,
@@ -43,21 +69,18 @@ fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
         fields,
         ..
     } = ItemBitFieldStruct::parse(input)?;
+
+    let (endian, attrs): (Vec<_>, Vec<_>) = attrs
+        .iter()
+        .partition(|attr| attr.path().is_ident("endian"));
+
+    let endian = get_endian_attr_val(&endian)?;
+
     let attrs: TokenStream = attrs.iter().map(ToTokens::to_token_stream).collect();
     let struct_fields: Vec<_> = fields.fields.iter().map(|v| &v.field).collect();
-    let struct_fields_init: TokenStream = struct_fields
-        .iter()
-        .map(|v| {
-            let ident = &v.ident;
-            let ty = &v.ty;
-            quote! {
-                #ident: <#ty>::default(),
-            }
-        })
-        .collect();
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let methods = fields.gen_method()?;
+    let methods = fields.gen_method(endian)?;
 
     Ok(quote! {
         #attrs
@@ -67,20 +90,29 @@ fn parse_bitfield_struct(input: ParseStream) -> Result<TokenStream> {
 
         #[allow(non_snake_case)]
         impl #impl_generics #ident #ty_generics #where_clause {
-            pub fn new() -> Self {
-                Self{
-                    #struct_fields_init
-                }
-            }
             #methods
         }
-
-        impl #impl_generics Default for #ident #ty_generics #where_clause {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Endian {
+    Little,
+    Big,
+    Native,
+}
+
+impl FromStr for Endian {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "little" => Ok(Self::Little),
+            "big" => Ok(Self::Big),
+            "native" => Ok(Self::Native),
+            _ => Err(()),
+        }
+    }
 }
 
 struct ItemBitFieldStruct {
@@ -133,11 +165,8 @@ struct BitFieldStructFields {
 }
 
 impl BitFieldStructFields {
-    fn gen_method(&self) -> Result<TokenStream> {
-        self.fields
-            .iter()
-            .map(BitFieldStructField::gen_method)
-            .collect()
+    fn gen_method(&self, endian: Endian) -> Result<TokenStream> {
+        self.fields.iter().map(|v| v.gen_method(endian)).collect()
     }
 }
 
@@ -224,7 +253,7 @@ impl Parse for BitFieldStructField {
 }
 
 impl BitFieldStructField {
-    fn gen_method(&self) -> Result<TokenStream> {
+    fn gen_method(&self, endian: Endian) -> Result<TokenStream> {
         let base_field_name = self
             .field
             .ident
@@ -236,24 +265,50 @@ impl BitFieldStructField {
         let getter_ident = format_ident!("get_{base_field_name}");
         let setter_ident = format_ident!("set_{base_field_name}");
         let with_ident = format_ident!("with_{base_field_name}");
-        let base_method = quote! {
-            pub fn #getter_ident(&self) -> #base_ty {
-                self.#base_field_name
-            }
+        let (getter, setter) = match endian {
+            Endian::Little => (format_ident!("from_le"), format_ident!("to_le")),
+            Endian::Big => (format_ident!("from_be"), format_ident!("to_be")),
+            Endian::Native => (format_ident!("from"), format_ident!("into")),
+        };
 
-            pub fn #setter_ident(&mut self, val: #base_ty) {
-                self.#base_field_name = val;
-            }
+        let base_method = match MyType::from_syn(base_ty)? {
+            MyType::Array(MyArrayType { elem_syn, .. }) => {
+                quote! {
+                    pub fn #getter_ident(&self) -> #base_ty {
+                        self.#base_field_name.map(<#elem_syn>::#getter)
+                    }
 
-            pub fn #with_ident(mut self, val: #base_ty) -> Self {
-                self.#setter_ident(val);
-                self
+                    pub fn #setter_ident(&mut self, val: #base_ty) {
+                        self.#base_field_name = val.map(<#elem_syn>::#setter);
+                    }
+
+                    pub fn #with_ident(mut self, val: #base_ty) -> Self {
+                        self.#setter_ident(val);
+                        self
+                    }
+                }
+            }
+            MyType::Normal(_) => {
+                quote! {
+                    pub fn #getter_ident(&self) -> #base_ty {
+                        <#base_ty>::#getter(self.#base_field_name)
+                    }
+
+                    pub fn #setter_ident(&mut self, val: #base_ty) {
+                        self.#base_field_name = val.#setter();
+                    }
+
+                    pub fn #with_ident(mut self, val: #base_ty) -> Self {
+                        self.#setter_ident(val);
+                        self
+                    }
+                }
             }
         };
 
         Ok(match self.bit_field {
             Some(ref bit_field) => {
-                let field_method = bit_field.gen_method(base_field_name, base_ty)?;
+                let field_method = bit_field.gen_method(base_field_name, base_ty, endian)?;
                 quote! {
                     #base_method
                     #field_method
@@ -270,17 +325,22 @@ enum BitField {
 }
 
 impl BitField {
-    fn gen_method(&self, base_field_name: &Ident, base_ty: &Type) -> Result<TokenStream> {
+    fn gen_method(
+        &self,
+        base_field_name: &Ident,
+        base_ty: &Type,
+        endian: Endian,
+    ) -> Result<TokenStream> {
         match self {
             BitField::Normal(normal) => {
                 let accessor = quote! {self.#base_field_name};
-                normal.gen_method(base_field_name, &accessor, base_ty)
+                normal.gen_method(base_field_name, &accessor, base_ty, endian)
             }
             BitField::Array(array) => {
                 let Type::Array(TypeArray { elem, .. }) = base_ty else {
                     return Err(Error::new_spanned(base_ty, "must be array type"));
                 };
-                array.gen_method(base_field_name, elem)
+                array.gen_method(base_field_name, elem, endian)
             }
         }
     }
@@ -325,12 +385,17 @@ struct BitFieldArray {
 }
 
 impl BitFieldArray {
-    fn gen_method(&self, base_field_name: &Ident, base_ty: &Type) -> Result<TokenStream> {
+    fn gen_method(
+        &self,
+        base_field_name: &Ident,
+        base_ty: &Type,
+        endian: Endian,
+    ) -> Result<TokenStream> {
         let mut result = Vec::new();
         for (idx, field) in self.fields.iter().enumerate() {
             let method_prefix = format_ident!("{base_field_name}_{idx}");
             let field_accessor = quote! {self.#base_field_name[#idx]};
-            let method = field.gen_method(&method_prefix, &field_accessor, base_ty)?;
+            let method = field.gen_method(&method_prefix, &field_accessor, base_ty, endian)?;
             result.push(method);
         }
 
@@ -377,12 +442,19 @@ impl BitFieldNamed {
         method_prefix: &Ident,
         field_accessor: &TokenStream,
         base_ty: &Type,
+        endian: Endian,
     ) -> Result<TokenStream> {
         let mut offset = 0;
         let mut methods = Vec::new();
         for field in self.fields.named.iter() {
-            let (method, bit_size) =
-                gen_field_method(field_accessor, base_ty, field, method_prefix, offset)?;
+            let (method, bit_size) = gen_field_method(
+                field_accessor,
+                base_ty,
+                field,
+                method_prefix,
+                offset,
+                endian,
+            )?;
 
             methods.push(method);
             offset += bit_size;
@@ -420,7 +492,6 @@ impl Size for BitFieldNamed {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum MyType {
     Array(MyArrayType),
     Normal(MyNormalType),
@@ -439,6 +510,7 @@ impl MyType {
                 ..
             }) => Ok(MyType::Array(MyArrayType {
                 elem: Box::new(MyType::from_syn(elem)?),
+                elem_syn: *elem.clone(),
                 len: lit_int.base10_parse()?,
             })),
 
@@ -529,9 +601,9 @@ impl FromStr for MyNormalTypeKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct MyArrayType {
     elem: Box<MyType>,
+    elem_syn: Type,
     len: u32,
 }
 
@@ -576,6 +648,7 @@ fn gen_field_method(
     field: &Field,
     prefix: &Ident,
     offset: u32,
+    endian: Endian,
 ) -> Result<(TokenStream, u32)> {
     let field_ident = field
         .ident
@@ -595,10 +668,16 @@ fn gen_field_method(
         quote! {result.wrapping_shr(#offset) as #ty}
     };
 
+    let (getter_endian, setter_endian) = match endian {
+        Endian::Little => (format_ident!("from_le"), format_ident!("to_le")),
+        Endian::Big => (format_ident!("from_be"), format_ident!("to_be")),
+        Endian::Native => (format_ident!("from"), format_ident!("into")),
+    };
+
     Ok((
         quote! {
             pub fn #get_ident(&self) -> #ty {
-                let tmp: #field_base_ty = #field_accessor;
+                let tmp: #field_base_ty = <#field_base_ty>::#getter_endian(#field_accessor);
 
                 // 1. まず、マスクを作成してbit_sizeの位置のビットをクリアする
                 let mask: #field_base_ty = ((1 << #bit_size) - 1) << #offset;
@@ -617,7 +696,7 @@ fn gen_field_method(
                 let value_mask: #field_base_ty = (val as #field_base_ty & ((1 << #bit_size) - 1)) << #offset;
                 tmp |= value_mask;
 
-                #field_accessor = tmp;
+                #field_accessor = tmp.#setter_endian();
             }
 
             pub fn #with_ident(mut self, val: #ty) -> Self {
@@ -667,6 +746,14 @@ mod tests {
             }
         })
         .is_err());
+
+        assert!(bitfield_struct_impl(quote! {
+            #[endian = ""]
+            struct A {
+                data: u8,
+            }
+        })
+        .is_err());
     }
 
     #[test]
@@ -680,17 +767,7 @@ mod tests {
             quote! {
                 struct A {}
                 #[allow(non_snake_case)]
-                impl A {
-                    pub fn new() -> Self {
-                        Self {}
-                    }
-                }
-
-                impl Default for A {
-                    fn default() -> Self {
-                        Self::new()
-                    }
-                }
+                impl A {}
             }
             .to_string()
         );
@@ -707,24 +784,12 @@ mod tests {
                 impl<T> A<T>
                 where
                     T: Debug + Default
-                {
-                    pub fn new() -> Self {
-                        Self {}
-                    }
-                }
-
-                impl<T> Default for A<T>
-                where
-                    T: Debug + Default
-                {
-                    fn default() -> Self {
-                        Self::new()
-                    }
-                }
+                {}
             }
             .to_string()
         );
 
+        // no endian: native
         assert_eq!(
             bitfield_struct_impl(quote! {
                 #[derive(Debug)]
@@ -743,26 +808,177 @@ mod tests {
                 }
                 #[allow(non_snake_case)]
                 impl A {
-                    pub fn new() -> Self {
-                        Self {
-                            flag123: <u16>::default(),
-                        }
-                    }
                     pub fn get_flag123(&self) -> u16 {
-                        self.flag123
+                        <u16>::from(self.flag123)
                     }
                     pub fn set_flag123(&mut self, val: u16) {
-                        self.flag123 = val;
+                        self.flag123 = val.into();
                     }
                     pub fn with_flag123(mut self, val: u16) -> Self {
                         self.set_flag123(val);
                         self
                     }
                 }
+            }
+            .to_string()
+        );
 
-                impl Default for A {
-                    fn default() -> Self {
-                        Self::new()
+        // native
+        assert_eq!(
+            bitfield_struct_impl(quote! {
+                #[derive(Debug)]
+                #[repr(C)]
+                #[endian = "native"]
+                pub struct A {
+                    flag123: u16,
+                }
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .to_string(),
+            quote! {
+                #[derive(Debug)]
+                #[repr(C)]
+                pub struct A {
+                    flag123: u16,
+                }
+                #[allow(non_snake_case)]
+                impl A {
+                    pub fn get_flag123(&self) -> u16 {
+                        <u16>::from(self.flag123)
+                    }
+                    pub fn set_flag123(&mut self, val: u16) {
+                        self.flag123 = val.into();
+                    }
+                    pub fn with_flag123(mut self, val: u16) -> Self {
+                        self.set_flag123(val);
+                        self
+                    }
+                }
+            }
+            .to_string()
+        );
+
+        // little
+        assert_eq!(
+            bitfield_struct_impl(quote! {
+                #[derive(Debug)]
+                #[endian = "little"]
+                #[repr(C)]
+                pub struct A {
+                    flag123: u16,
+                }
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .to_string(),
+            quote! {
+                #[derive(Debug)]
+                #[repr(C)]
+                pub struct A {
+                    flag123: u16,
+                }
+                #[allow(non_snake_case)]
+                impl A {
+                    pub fn get_flag123(&self) -> u16 {
+                        <u16>::from_le(self.flag123)
+                    }
+                    pub fn set_flag123(&mut self, val: u16) {
+                        self.flag123 = val.to_le();
+                    }
+                    pub fn with_flag123(mut self, val: u16) -> Self {
+                        self.set_flag123(val);
+                        self
+                    }
+                }
+            }
+            .to_string()
+        );
+
+        // big
+        assert_eq!(
+            bitfield_struct_impl(quote! {
+                #[endian = "big"]
+                #[derive(Debug)]
+                #[repr(C)]
+                pub struct A {
+                    flag123: u16,
+                }
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .to_string(),
+            quote! {
+                #[derive(Debug)]
+                #[repr(C)]
+                pub struct A {
+                    flag123: u16,
+                }
+                #[allow(non_snake_case)]
+                impl A {
+                    pub fn get_flag123(&self) -> u16 {
+                        <u16>::from_be(self.flag123)
+                    }
+                    pub fn set_flag123(&mut self, val: u16) {
+                        self.flag123 = val.to_be();
+                    }
+                    pub fn with_flag123(mut self, val: u16) -> Self {
+                        self.set_flag123(val);
+                        self
+                    }
+                }
+            }
+            .to_string()
+        );
+
+        assert_eq!(
+            bitfield_struct_impl(quote! {
+                #[endian = "big"]
+                #[derive(Debug)]
+                #[repr(C)]
+                pub struct A {
+                    flag123: [u16; 1] => [
+                        {
+                            #[bits(16)]
+                            flag: u16,
+                        }
+                    ],
+                }
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .to_string(),
+            quote! {
+                #[derive(Debug)]
+                #[repr(C)]
+                pub struct A {
+                    flag123: [u16; 1],
+                }
+                #[allow(non_snake_case)]
+                impl A {
+                    pub fn get_flag123(&self) -> [u16; 1] {
+                        self.flag123.map(<u16>::from_be)
+                    }
+                    pub fn set_flag123(&mut self, val: [u16; 1]) {
+                        self.flag123 = val.map(<u16>::to_be);
+                    }
+                    pub fn with_flag123(mut self, val: [u16; 1]) -> Self {
+                        self.set_flag123(val);
+                        self
+                    }
+                    pub fn get_flag123_0_flag(&self) -> u16 {
+                        let tmp: u16 = <u16>::from_be(self.flag123[0usize]);
+                        let mask: u16 = ((1 << 16u32) - 1) << 0u32;
+                        let result: u16 = tmp & mask;
+                        result.wrapping_shr(0u32) as u16
+                    }
+                    pub fn set_flag123_0_flag(&mut self, val: u16) {
+                        let mut tmp: u16 = self.flag123[0usize];
+                        let clear_mask: u16 = !(((1 << 16u32) - 1) << 0u32);
+                        tmp &= clear_mask;
+                        let value_mask: u16 = (val as u16 & ((1 << 16u32) - 1)) << 0u32;
+                        tmp |= value_mask;
+                        self.flag123[0usize] = tmp.to_be();
+                    }
+                    pub fn with_flag123_0_flag(mut self, val: u16) -> Self {
+                        self.set_flag123_0_flag(val);
+                        self
                     }
                 }
             }
@@ -803,24 +1019,18 @@ mod tests {
                 }
                 #[allow(non_snake_case)]
                 impl A {
-                    pub fn new() -> Self {
-                        Self {
-                            flag123: <u16>::default(),
-                            flags: <[u8; 2]>::default(),
-                        }
-                    }
                     pub fn get_flag123(&self) -> u16 {
-                        self.flag123
+                        <u16>::from(self.flag123)
                     }
                     pub fn set_flag123(&mut self, val: u16) {
-                        self.flag123 = val;
+                        self.flag123 = val.into();
                     }
                     pub fn with_flag123(mut self, val: u16) -> Self {
                         self.set_flag123(val);
                         self
                     }
                     pub fn get_flag123_flag1(&self) -> bool {
-                        let tmp: u16 = self.flag123;
+                        let tmp: u16 = <u16>::from(self.flag123);
                         let mask: u16 = ((1 << 1u32) - 1) << 0u32;
                         let result: u16 = tmp & mask;
                         result != 0
@@ -831,14 +1041,14 @@ mod tests {
                         tmp &= clear_mask;
                         let value_mask: u16 = (val as u16 & ((1 << 1u32) - 1)) << 0u32;
                         tmp |= value_mask;
-                        self.flag123 = tmp;
+                        self.flag123 = tmp.into();
                     }
                     pub fn with_flag123_flag1(mut self, val: bool) -> Self {
                         self.set_flag123_flag1(val);
                         self
                     }
                     pub fn get_flag123_flag2(&self) -> u16 {
-                        let tmp: u16 = self.flag123;
+                        let tmp: u16 = <u16>::from(self.flag123);
                         let mask: u16 = ((1 << 15u32) - 1) << 1u32;
                         let result: u16 = tmp & mask;
                         result.wrapping_shr(1u32) as u16
@@ -849,24 +1059,24 @@ mod tests {
                         tmp &= clear_mask;
                         let value_mask: u16 = (val as u16 & ((1 << 15u32) - 1)) << 1u32;
                         tmp |= value_mask;
-                        self.flag123 = tmp;
+                        self.flag123 = tmp.into();
                     }
                     pub fn with_flag123_flag2(mut self, val: u16) -> Self {
                         self.set_flag123_flag2(val);
                         self
                     }
                     pub fn get_flags(&self) -> [u8; 2] {
-                        self.flags
+                        self.flags.map(<u8>::from)
                     }
                     pub fn set_flags(&mut self, val: [u8; 2]) {
-                        self.flags = val;
+                        self.flags = val.map(<u8>::into);
                     }
                     pub fn with_flags(mut self, val: [u8; 2]) -> Self {
                         self.set_flags(val);
                         self
                     }
                     pub fn get_flags_0_flag3(&self) -> u8 {
-                        let tmp: u8 = self.flags[0usize];
+                        let tmp: u8 = <u8>::from(self.flags[0usize]);
                         let mask: u8 = ((1 << 8u32) - 1) << 0u32;
                         let result: u8 = tmp & mask;
                         result.wrapping_shr(0u32) as u8
@@ -877,14 +1087,14 @@ mod tests {
                         tmp &= clear_mask;
                         let value_mask: u8 = (val as u8 & ((1 << 8u32) - 1)) << 0u32;
                         tmp |= value_mask;
-                        self.flags[0usize] = tmp;
+                        self.flags[0usize] = tmp.into();
                     }
                     pub fn with_flags_0_flag3(mut self, val: u8) -> Self {
                         self.set_flags_0_flag3(val);
                         self
                     }
                     pub fn get_flags_1_flag4(&self) -> u8 {
-                        let tmp: u8 = self.flags[1usize];
+                        let tmp: u8 = <u8>::from(self.flags[1usize]);
                         let mask: u8 = ((1 << 2u32) - 1) << 0u32;
                         let result: u8 = tmp & mask;
                         result.wrapping_shr(0u32) as u8
@@ -895,14 +1105,14 @@ mod tests {
                         tmp &= clear_mask;
                         let value_mask: u8 = (val as u8 & ((1 << 2u32) - 1)) << 0u32;
                         tmp |= value_mask;
-                        self.flags[1usize] = tmp;
+                        self.flags[1usize] = tmp.into();
                     }
                     pub fn with_flags_1_flag4(mut self, val: u8) -> Self {
                         self.set_flags_1_flag4(val);
                         self
                     }
                     pub fn get_flags_1_flag5(&self) -> u8 {
-                        let tmp: u8 = self.flags[1usize];
+                        let tmp: u8 = <u8>::from(self.flags[1usize]);
                         let mask: u8 = ((1 << 6u32) - 1) << 2u32;
                         let result: u8 = tmp & mask;
                         result.wrapping_shr(2u32) as u8
@@ -913,16 +1123,11 @@ mod tests {
                         tmp &= clear_mask;
                         let value_mask: u8 = (val as u8 & ((1 << 6u32) - 1)) << 2u32;
                         tmp |= value_mask;
-                        self.flags[1usize] = tmp;
+                        self.flags[1usize] = tmp.into();
                     }
                     pub fn with_flags_1_flag5(mut self, val: u8) -> Self {
                         self.set_flags_1_flag5(val);
                         self
-                    }
-                }
-                impl Default for A {
-                    fn default() -> Self {
-                        Self::new()
                     }
                 }
             }

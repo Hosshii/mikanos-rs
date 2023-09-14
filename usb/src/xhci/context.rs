@@ -2,8 +2,9 @@ use macros::bitfield_struct;
 
 bitfield_struct! {
     #[repr(C)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct SlotContext {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    #[endian = "little"]
+    pub struct SlotContext {
         data: [u32; 8] => [
             {
                 #[bits(20)]
@@ -67,8 +68,9 @@ bitfield_struct! {
     }
 
     #[repr(C)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct EndpointContxt {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    #[endian = "little"]
+    pub struct EndpointContxt {
         data: [u32; 8] => [
             {
                 #[bits(3)]
