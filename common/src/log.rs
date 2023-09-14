@@ -179,7 +179,7 @@ macro_rules! debug {
         }
     };
     ($fmt:expr, $($arg:tt)*) => {
-        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Error {
+        if $crate::log::log_level_threshold() <= $crate::log::LogLevel::Debug {
             $crate::log::logger().log(&$crate::log::Payload::new(
                 $crate::log::LogLevel::Debug,
                 ::core::format_args!($fmt, $($arg)*),

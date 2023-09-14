@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(dead_code)]
 
 #[cfg(feature = "alloc")]
 pub mod allocater;

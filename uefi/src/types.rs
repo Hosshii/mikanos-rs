@@ -68,19 +68,22 @@ impl CStr16 {
         self.innner.as_ptr()
     }
 
-    pub fn from_str_with_buf<'a>(input: &str, buf: &'a mut [u16]) -> Result<&'a Self, ()> {
+    pub fn from_str_with_buf<'a>(
+        input: &str,
+        buf: &'a mut [u16],
+    ) -> Result<&'a Self, &'static str> {
         let mut idx = 0;
         for c in input.encode_utf16() {
             let Some(slot) = buf.get_mut(idx) else {
-                return Err(());
+                return Err("buf size is small");
             };
             if c == 0 && idx != input.len() {
-                return Err(());
+                return Err("middle null");
             }
             *slot = c;
             idx += 1;
         }
-        *buf.get_mut(idx).ok_or(())? = 0;
+        *buf.get_mut(idx).ok_or("buf size is small")? = 0;
 
         Ok(unsafe { Self::from_u16_unchecked(buf) })
     }

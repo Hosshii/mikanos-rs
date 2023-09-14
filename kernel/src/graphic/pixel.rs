@@ -123,6 +123,8 @@ impl Add<PixelPosition> for PixelPosition {
 }
 
 pub trait PixelWriterInner: sealed::Sealed {
+    /// # Safety
+    /// ptr must be valid.
     unsafe fn write_pixel(&self, ptr: *mut u8, offset: usize, color: Color);
 }
 
@@ -153,6 +155,8 @@ impl PixelWriterInner for BGRWriter {
 pub trait PixelWriter {
     fn write_pixel(&mut self, pos: PixelPosition, color: Color) -> Result<()>;
 
+    /// # Safety
+    /// `pos` must be valid.
     unsafe fn write_pixel_unchecked(&mut self, pos: PixelPosition, color: Color);
 }
 

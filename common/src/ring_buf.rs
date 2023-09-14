@@ -29,7 +29,7 @@ pub struct RingBuffer<T, const SIZE: usize> {
 }
 
 impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
-    pub fn new() -> Self {
+    pub fn zeroed() -> Self {
         Self {
             buf: unsafe { MaybeUninit::zeroed().assume_init() },
             tail: 0,
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_valid() {
-        let mut v = RingBuffer::<usize, SIZE>::new();
+        let mut v = RingBuffer::<usize, SIZE>::zeroed();
         assert!((0..SIZE).all(|idx| !v.is_valid_buf_idx(idx)));
 
         v.push(1).unwrap();
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_push_pop() {
-        let mut v = RingBuffer::<usize, SIZE>::new();
+        let mut v = RingBuffer::<usize, SIZE>::zeroed();
 
         assert_eq!(v.pop(), None);
 
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_len() {
-        let mut v = RingBuffer::<usize, SIZE>::new();
+        let mut v = RingBuffer::<usize, SIZE>::zeroed();
 
         assert!(v.is_empty());
         assert!(!v.is_full());
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_push_overwrite() {
-        let mut v = RingBuffer::<usize, SIZE>::new();
+        let mut v = RingBuffer::<usize, SIZE>::zeroed();
 
         for i in 0..SIZE {
             v.push(i).unwrap();
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut v = RingBuffer::<usize, SIZE>::new();
+        let mut v = RingBuffer::<usize, SIZE>::zeroed();
 
         for i in 0..SIZE {
             v.push(i).unwrap();
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_iter() {
-        let mut v = RingBuffer::<usize, SIZE>::new();
+        let mut v = RingBuffer::<usize, SIZE>::zeroed();
 
         assert!(v.iter().next().is_none());
 

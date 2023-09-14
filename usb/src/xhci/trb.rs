@@ -41,13 +41,13 @@ impl TRBRaw {
 }
 
 impl From<Link> for TRBRaw {
-    fn from(value: Link) -> Self {
+    fn from(_value: Link) -> Self {
         todo!()
     }
 }
 
-impl From<TRB> for TRBRaw {
-    fn from(value: TRB) -> Self {
+impl From<Trb> for TRBRaw {
+    fn from(_value: Trb) -> Self {
         todo!()
     }
 }
@@ -107,7 +107,7 @@ impl TrbType {
             TransferEvent => 32,
             CommandConpletionEvent => 33,
             PortStatusChangeEvent => 34,
-            Unknown(x) => todo!(),
+            Unknown(x) => x,
         }
     }
 }
@@ -204,7 +204,7 @@ impl Link {
     }
 }
 
-pub enum TRB {
+pub enum Trb {
     Normal,
     SetupStage,
     DataStage,
@@ -221,8 +221,8 @@ pub enum TRB {
     Unknown(u8),
 }
 
-impl From<TRBRaw> for TRB {
-    fn from(value: TRBRaw) -> Self {
+impl From<TRBRaw> for Trb {
+    fn from(_value: TRBRaw) -> Self {
         todo!()
     }
 }

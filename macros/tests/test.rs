@@ -92,10 +92,6 @@ enum Flag {
 }
 
 impl Flag {
-    fn to_be(self) -> u32 {
-        self.to_ne().to_be()
-    }
-
     fn from_be(v: u32) -> Self {
         Self::from_ne(u32::from_be(v))
     }

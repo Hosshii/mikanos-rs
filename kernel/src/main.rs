@@ -52,7 +52,7 @@ fn panic(info: &PanicInfo) -> ! {
     {
         let mut console = kernel::console_mut();
         console.clear_cursor();
-        console.clear_screen();
+        console.clear_screen().unwrap();
     }
 
     println!("panic {:?}", info);
@@ -131,10 +131,10 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let mut pci = Pci::new();
 
     pci.scan_all_bus()?;
-    println!("scan all bus");
+    info!("scan all bus");
 
     for dev in pci.devices() {
-        println!("{:?}", dev.class_code());
+        debug!("{:?}", dev.class_code());
     }
 
     let usb = pci
@@ -147,12 +147,12 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
         pci.switch_ehci2xhci(usb)?;
     }
 
-    let cx: Context = Context::zeroed();
+    let cx = Context::zeroed();
     let cx = pin!(cx);
-    let xhci = unsafe { Controller::new(bar, cx) };
+    let xhci: Controller<_> = unsafe { Controller::new(bar, cx) };
 
     info!("initialize usb...");
-    let xhci = xhci.initialize();
+    let _xhci = xhci.initialize();
     info!("initialize finished!");
 
     Ok(())

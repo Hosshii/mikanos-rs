@@ -1,13 +1,15 @@
+#![allow(dead_code)]
+
 use self::{
     context::DeviceContext,
     error::{Error, Result},
     register_map::{CapabilityRegisters, OperationalRegisters, RuntimeRegisters},
     ring::{EventRingSegmentTableEntry, TCRing},
-    trb::TRBRaw,
 };
 use common::debug;
 use core::{
     marker::{PhantomData, PhantomPinned},
+    ops::IndexMut,
     pin::Pin,
     ptr,
 };
@@ -37,7 +39,7 @@ pub struct Context<
 > {
     device_context_ptrs: [*mut DeviceContext; DEV],
     command_ring: TCRing<CMD>,
-    event_ring_segments: [[TRBRaw; SEG_SIZE]; SEG_NUM],
+    event_ring_segments: [TCRing<SEG_SIZE>; SEG_NUM],
     event_ring_segment_table: [EventRingSegmentTableEntry; TAB_SIZE],
     _phantom_pinned: PhantomPinned,
 }
@@ -53,7 +55,7 @@ impl<
     pub fn zeroed() -> Self {
         let device_context_ptrs = [ptr::null_mut(); DEV];
         let command_ring = TCRing::new();
-        let event_ring_segments = [[TRBRaw::zeroed(); SEG_SIZE]; SEG_NUM];
+        let event_ring_segments = [(); SEG_NUM].map(|_| TCRing::zeroed());
         let event_ring_segment_table = [EventRingSegmentTableEntry::zeroed(); TAB_SIZE];
 
         Self {
@@ -246,7 +248,10 @@ impl<
             count
         };
 
-        let primary = &mut self.runtime_registers.get_interrupter_register_sets_mut()[0];
+        let primary = self
+            .runtime_registers
+            .get_interrupter_register_sets_mut()
+            .index_mut(0);
 
         debug!("write erstsz: {}", size);
         let mut erstsz = primary.event_ring_segment_table_size().read();

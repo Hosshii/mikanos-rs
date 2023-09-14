@@ -1,4 +1,4 @@
-use common::log::{self, Log, Payload};
+use common::log::{self, Log, LogLevel, Payload};
 
 use crate::println;
 
@@ -12,4 +12,5 @@ impl Log for Logger {
 
 pub fn init_logger() {
     log::set_logger(&Logger).unwrap();
+    log::set_log_level_threshold(LogLevel::Debug)
 }

@@ -1,13 +1,11 @@
-use super::{
-    register_map::{FromSegment, IntoSegment},
-    trb::{Link, TRBRaw},
-};
+use super::trb::{Link, TRBRaw};
 use common::ring_buf::RingBuffer;
 use core::mem::MaybeUninit;
-use macros::{bitfield_struct, FromSegment, IntoSegment};
+use macros::bitfield_struct;
 
 /// Transfer or Communicate ring.
 #[repr(C, align(64))]
+#[derive(Debug)]
 pub struct TCRing<const SIZE: usize> {
     ring_buf: RingBuffer<TRBRaw, SIZE>,
     cycle_bit: bool,
@@ -19,7 +17,16 @@ impl<const SIZE: usize> TCRing<SIZE> {
         debug_assert!(2 <= SIZE);
 
         Self {
-            ring_buf: RingBuffer::<_, SIZE>::new(),
+            ring_buf: RingBuffer::<_, SIZE>::zeroed(),
+            cycle_bit: false,
+        }
+    }
+
+    pub fn zeroed() -> Self {
+        debug_assert!(2 <= SIZE);
+
+        Self {
+            ring_buf: RingBuffer::<_, SIZE>::zeroed(),
             cycle_bit: false,
         }
     }
