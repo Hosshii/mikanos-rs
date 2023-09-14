@@ -1,5 +1,7 @@
 #![no_std]
 
+#[cfg(feature = "alloc")]
+pub mod allocater;
 pub mod error;
 pub mod graphic;
 pub mod logger;

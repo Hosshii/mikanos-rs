@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 use core::{arch::asm, panic::PanicInfo};
 
 use common::{debug, info};
@@ -46,9 +49,12 @@ const MOUSE_CURSOR_SHAPE: [&str; MOUSE_CURSOR_HEIGHT] = [
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    let mut console = kernel::console_mut();
-    console.clear_cursor();
-    console.clear_screen();
+    {
+        let mut console = kernel::console_mut();
+        console.clear_cursor();
+        console.clear_screen();
+    }
+
     println!("panic {:?}", info);
     loop {}
 }

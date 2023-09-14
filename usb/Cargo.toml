@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 macros = { path = "../macros" }
 common = { path = "../common" }
+
+[features]
+alloc = []

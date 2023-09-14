@@ -8,3 +8,7 @@ edition = "2021"
 [dependencies]
 common = { path = "../common" }
 usb = { path = "../usb" }
+
+[features]
+default = []
+alloc = [ "usb/alloc" ]
