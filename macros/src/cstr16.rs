@@ -22,7 +22,7 @@ fn cstr16parse(input: ParseStream) -> Result<TokenStream> {
     }
 
     // TODO:ucs2
-    let lit_str: LitStr = expect_t(&input)?;
+    let lit_str: LitStr = expect_t(input)?;
     let lit_string = lit_str.value();
     let utf16 = lit_string.encode_utf16();
 

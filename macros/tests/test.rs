@@ -25,9 +25,13 @@ const FLAGS_1_FLAG12: u8 = 0b10;
 const FLAGS_1: u8 =
     (FLAGS_1_FLAG12 << 6) | (FLAGS_1_FLAG11 << 4) | (FLAGS_1_FLAG10 << 2) | FLAGS_1_FLAG9;
 
+const ENUMS_FLAG: Flag = Flag::B;
+const ENUMS_REMAIN: u32 = 0b10101010101010101010101010101;
+const ENUNMS: u32 = (ENUMS_REMAIN << 3) | ENUMS_FLAG.to_ne();
+
 #[test]
 fn test() {
-    let hoge = Hoge::new()
+    let hoge = Hoge::default()
         .with_flag123_flag1(FLAG123_FLAG1)
         .with_flag123_flag2(FLAG123_FLAG2)
         .with_flag123_flag3(FLAG123_FLAG3)
@@ -40,11 +44,14 @@ fn test() {
         .with_flags_1_flag9(FLAGS_1_FLAG9)
         .with_flags_1_flag10(FLAGS_1_FLAG10)
         .with_flags_1_flag11(FLAGS_1_FLAG11)
-        .with_flags_1_flag12(FLAGS_1_FLAG12);
+        .with_flags_1_flag12(FLAGS_1_FLAG12)
+        .with_enums_flag(ENUMS_FLAG)
+        .with_enums_remain(ENUMS_REMAIN);
 
-    assert_eq!(mem::size_of::<Hoge>(), 8);
+    assert_eq!(mem::size_of::<Hoge>(), 12);
     check_flag123(&hoge);
     check_flags(&hoge);
+    check_enum(&hoge);
 }
 
 fn check_flag123(hoge: &Hoge) {
@@ -70,8 +77,48 @@ fn check_flags(hoge: &Hoge) {
     assert_eq!(hoge.get_flags(), [FLAGS_0, FLAGS_1]);
 }
 
+fn check_enum(hoge: &Hoge) {
+    assert_eq!(hoge.get_enums_flag(), ENUMS_FLAG);
+    assert_eq!(hoge.get_enums_remain(), ENUMS_REMAIN);
+    assert_eq!(hoge.get_enums(), ENUNMS);
+}
+
+#[repr(u32)]
+#[derive(Debug, PartialEq, Eq)]
+enum Flag {
+    A,
+    B,
+    C(u32),
+}
+
+impl Flag {
+    fn to_be(self) -> u32 {
+        self.to_ne().to_be()
+    }
+
+    fn from_be(v: u32) -> Self {
+        Self::from_ne(u32::from_be(v))
+    }
+
+    const fn to_ne(self) -> u32 {
+        match self {
+            Flag::A => 1,
+            Flag::B => 2,
+            Flag::C(x) => x,
+        }
+    }
+
+    fn from_ne(v: u32) -> Self {
+        match v {
+            1 => Self::A,
+            2 => Self::B,
+            x => Self::C(x),
+        }
+    }
+}
+
 bitfield_struct! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     struct Hoge {
         flag123: u16 => {
             #[bits(1)]
@@ -107,6 +154,13 @@ bitfield_struct! {
                 #[bits(2)]
                 flag12: u8,
             }
-        ]
+        ],
+
+        enums: u32 => {
+            #[bits(3)]
+            flag: Flag,
+            #[bits(29)]
+            remain: u32,
+        }
     }
 }

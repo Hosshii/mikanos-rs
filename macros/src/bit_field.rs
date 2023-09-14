@@ -468,20 +468,6 @@ impl Parse for BitFieldNamed {
     fn parse(input: ParseStream) -> Result<Self> {
         let fields = input.parse::<FieldsNamed>()?;
 
-        for field in fields.named.iter() {
-            let attrs_bit_size = get_bit_attr_val(&field.attrs, field.span())?;
-            let actual_bit_size = ty_bits(&field.ty)?;
-            if actual_bit_size < attrs_bit_size {
-                return Err(Error::new_spanned(
-                    field,
-                    format!(
-                        "field size {} is smaller than bits attribute {}",
-                        actual_bit_size, attrs_bit_size
-                    ),
-                ));
-            }
-        }
-
         Ok(Self { fields })
     }
 }
@@ -553,7 +539,7 @@ impl Size for MyNormalType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum MyNormalTypeKind {
     Bool,
     U8,
@@ -564,6 +550,7 @@ enum MyNormalTypeKind {
     I16,
     I32,
     I64,
+    User(String),
 }
 
 impl Size for MyNormalTypeKind {
@@ -576,6 +563,7 @@ impl Size for MyNormalTypeKind {
             U16 | I16 => 16,
             U32 | I32 => 32,
             U64 | I64 => 64,
+            User(_) => todo!(),
         })
     }
 }
@@ -596,7 +584,7 @@ impl FromStr for MyNormalTypeKind {
             "i16" => Ok(I16),
             "i32" => Ok(I32),
             "i64" => Ok(I64),
-            _ => Err(()),
+            x => Ok(User(x.to_string())),
         }
     }
 }
@@ -662,10 +650,19 @@ fn gen_field_method(
     let with_ident = format_ident!("with_{}_{}", prefix, field_ident);
     let ty = &field.ty;
 
-    let cast_result = if ty_bits(ty)? == 1 {
-        quote! {result != 0}
-    } else {
-        quote! {result.wrapping_shr(#offset) as #ty}
+    let (cast_result, cast_val) = match MyType::from_syn(ty)? {
+        MyType::Normal(MyNormalType {
+            kind: MyNormalTypeKind::Bool,
+            ..
+        }) => (quote! {result != 0}, quote! {val as #field_base_ty}),
+        MyType::Normal(MyNormalType {
+            kind: MyNormalTypeKind::User(_),
+            ..
+        }) => (quote!(<#ty>::from_ne(result)), quote! {val.to_ne()}),
+        _ => (
+            quote! {result.wrapping_shr(#offset) as #ty},
+            quote! {val as #field_base_ty},
+        ),
     };
 
     let (getter_endian, setter_endian) = match endian {
@@ -693,7 +690,7 @@ fn gen_field_method(
                 tmp &= clear_mask;
 
                 // 2. 指定されたvalueをoffset位置にシフトし、既存のデータとORを取る
-                let value_mask: #field_base_ty = (val as #field_base_ty & ((1 << #bit_size) - 1)) << #offset;
+                let value_mask: #field_base_ty = (#cast_val & ((1 << #bit_size) - 1)) << #offset;
                 tmp |= value_mask;
 
                 #field_accessor = tmp.#setter_endian();
@@ -785,6 +782,56 @@ mod tests {
                 where
                     T: Debug + Default
                 {}
+            }
+            .to_string()
+        );
+
+        assert_eq!(
+            bitfield_struct_impl(quote! {
+                struct A {
+                    hoge: u16 => {
+                        #[bits(16)]
+                        flag: Flag,
+                    },
+                }
+            })
+            .unwrap_or_else(Error::into_compile_error)
+            .to_string(),
+            quote! {
+                struct A {
+                    hoge: u16,
+                }
+                #[allow(non_snake_case)]
+                impl A {
+                    pub fn get_hoge(&self) -> u16 {
+                        <u16>::from(self.hoge)
+                    }
+                    pub fn set_hoge(&mut self, val: u16) {
+                        self.hoge = val.into();
+                    }
+                    pub fn with_hoge(mut self, val: u16) -> Self {
+                        self.set_hoge(val);
+                        self
+                    }
+                    pub fn get_hoge_flag(&self) -> Flag {
+                        let tmp: u16 = <u16>::from(self.hoge);
+                        let mask: u16 = ((1 << 16u32) - 1) << 0u32;
+                        let result: u16 = tmp & mask;
+                        <Flag>::from_ne(result)
+                    }
+                    pub fn set_hoge_flag(&mut self, val: Flag) {
+                        let mut tmp: u16 = self.hoge;
+                        let clear_mask: u16 = !(((1 << 16u32) - 1) << 0u32);
+                        tmp &= clear_mask;
+                        let value_mask: u16 = (val.to_ne() & ((1 << 16u32) - 1)) << 0u32;
+                        tmp |= value_mask;
+                        self.hoge = tmp.into();
+                    }
+                    pub fn with_hoge_flag(mut self, val: Flag) -> Self {
+                        self.set_hoge_flag(val);
+                        self
+                    }
+                }
             }
             .to_string()
         );
