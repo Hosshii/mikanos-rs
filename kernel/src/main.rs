@@ -152,7 +152,7 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let xhci: Controller<_> = unsafe { Controller::new(bar, cx) };
 
     info!("initialize usb...");
-    let _xhci = xhci.initialize();
+    let _xhci = xhci.initialize_and_run();
     info!("initialize finished!");
 
     Ok(())

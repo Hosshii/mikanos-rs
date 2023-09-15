@@ -6,7 +6,7 @@ use self::{
     register_map::{CapabilityRegisters, OperationalRegisters, RuntimeRegisters},
     ring::{EventRingSegmentTableEntry, TCRing},
 };
-use common::debug;
+use common::{debug, info};
 use core::{
     marker::{PhantomData, PhantomPinned},
     ops::IndexMut,
@@ -119,13 +119,14 @@ impl<
         }
     }
 
-    pub fn initialize(
+    pub fn initialize_and_run(
         mut self,
     ) -> Result<Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>> {
         self.reset();
         self.set_device_context()?;
         self.register_command_ring();
         self.register_event_ring();
+        self.run();
 
         Ok(Controller {
             _phantomdata: PhantomData,
@@ -136,6 +137,22 @@ impl<
         })
     }
 
+    fn run(&mut self) {
+        info!("run xhci");
+        let mut cmd = self.operational_registers.usb_command().read();
+        cmd.set_data_run_stop(true);
+        self.operational_registers.usb_command_mut().write(cmd);
+
+        while self
+            .operational_registers
+            .usb_status()
+            .read()
+            .get_data_host_controller_halted()
+        {
+            debug!("waiting")
+        }
+    }
+
     fn reset(&mut self) {
         debug!("start xhci reset");
         debug!("wait host controller halted");
@@ -144,7 +161,9 @@ impl<
             .usb_status()
             .read()
             .get_data_host_controller_halted()
-        {}
+        {
+            debug!("wait hch");
+        }
 
         // reset host controller
         debug!("reset host controller");
@@ -156,7 +175,9 @@ impl<
             .usb_command()
             .read()
             .get_data_host_controller_reset()
-        {}
+        {
+            debug!("wait hcr");
+        }
 
         debug!("wait controller not ready");
         while self
@@ -164,7 +185,9 @@ impl<
             .usb_status()
             .read()
             .get_data_controller_not_ready()
-        {}
+        {
+            debug!("wait cnr");
+        }
     }
 
     fn set_device_context(&mut self) -> Result<()> {

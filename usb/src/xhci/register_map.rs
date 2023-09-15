@@ -128,6 +128,8 @@ where
     }
 }
 
+// associate cosnt is preferred
+// https://github.com/rust-lang/rust/issues/60551
 pub trait Segment<const N: usize>:
     IntoSegment<N, Element = <Self as Segment<N>>::Element>
     + FromSegment<N, Element = <Self as Segment<N>>::Element>
