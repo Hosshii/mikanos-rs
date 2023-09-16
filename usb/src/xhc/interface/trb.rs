@@ -1,6 +1,14 @@
 use super::endian::{EndianFrom, EndianInto};
 use macros::bitfield_struct;
 
+pub(crate) const fn check_size<T>(size: usize) {
+    if core::mem::size_of::<T>() != size {
+        panic!("size unmatced")
+    }
+}
+
+const _: () = check_size::<TRBRaw>(16);
+
 bitfield_struct! {
     /// FFI types.
     /// fields are little endian.

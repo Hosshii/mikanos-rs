@@ -17,7 +17,7 @@ use kernel::{
     pci::{Device, Pci, PciExtUsb as _},
     println, KernelArg,
 };
-use usb::xhci::{Context, Controller};
+use usb::xhc::driver::{error::Error as UsbError, Context, Controller};
 
 const MOUSE_CURSOR_HEIGHT: usize = 24;
 const MOUSE_CURSOR_SHAPE: [&str; MOUSE_CURSOR_HEIGHT] = [
@@ -152,8 +152,10 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let xhci: Controller<_> = unsafe { Controller::new(bar, cx) };
 
     info!("initialize usb...");
-    let _xhci = xhci.initialize_and_run();
+    let xhci = xhci.initialize()?;
     info!("initialize finished!");
+    info!("run xhci");
+    xhci.run();
 
     Ok(())
 }
@@ -198,10 +200,17 @@ impl From<GraphicError> for Error {
     }
 }
 
+impl From<UsbError> for Error {
+    fn from(value: UsbError) -> Self {
+        Self(ErrorKind::Usb(value))
+    }
+}
+
 #[derive(Debug)]
 enum ErrorKind {
     Lib(LibError),
     Graphic(GraphicError),
+    Usb(UsbError),
     Custom(&'static str),
 }
 

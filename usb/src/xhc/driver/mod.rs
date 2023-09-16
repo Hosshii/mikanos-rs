@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
-use self::{
+use super::interface::{
     context::DeviceContext,
-    error::{Error, Result},
     register_map::{CapabilityRegisters, OperationalRegisters, RuntimeRegisters},
     ring::{EventRingSegmentTableEntry, TCRing},
 };
@@ -13,16 +12,13 @@ use core::{
     pin::Pin,
     ptr,
 };
+use error::{Error, Result};
 
-mod context;
-mod endian;
 pub mod error;
-mod register_map;
-mod ring;
-mod trb;
 
-pub struct Initial;
+pub struct Uninitialized;
 pub struct Initialized;
+pub struct Running;
 
 const DEFAULT_NUM_DEVICE_CONTEXT: usize = 64;
 const DEFAULT_COMMAND_RING_BUF_SIZE: usize = 16;
@@ -91,7 +87,7 @@ impl<
         const SEG_SIZE: usize,
         const SEG_NUM: usize,
         const TAB_SIZE: usize,
-    > Controller<'a, Initial, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+    > Controller<'a, Uninitialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
 {
     /// # Safety
     /// bar must be correct address.
@@ -119,14 +115,13 @@ impl<
         }
     }
 
-    pub fn initialize_and_run(
+    pub fn initialize(
         mut self,
     ) -> Result<Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>> {
         self.reset();
         self.set_device_context()?;
         self.register_command_ring();
         self.register_event_ring();
-        self.run();
 
         Ok(Controller {
             _phantomdata: PhantomData,
@@ -135,22 +130,6 @@ impl<
             runtime_registers: self.runtime_registers,
             cx: self.cx,
         })
-    }
-
-    fn run(&mut self) {
-        info!("run xhci");
-        let mut cmd = self.operational_registers.usb_command().read();
-        cmd.set_data_run_stop(true);
-        self.operational_registers.usb_command_mut().write(cmd);
-
-        while self
-            .operational_registers
-            .usb_status()
-            .read()
-            .get_data_host_controller_halted()
-        {
-            debug!("waiting")
-        }
     }
 
     fn reset(&mut self) {
@@ -295,4 +274,49 @@ impl<
             .event_ring_segment_table_base_address_mut()
             .write(erstba);
     }
+}
+
+impl<
+        'a,
+        const DEV: usize,
+        const CMD: usize,
+        const SEG_SIZE: usize,
+        const SEG_NUM: usize,
+        const TAB_SIZE: usize,
+    > Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+{
+    pub fn run(mut self) -> Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE> {
+        info!("run xhci");
+        let mut cmd = self.operational_registers.usb_command().read();
+        cmd.set_data_run_stop(true);
+        self.operational_registers.usb_command_mut().write(cmd);
+
+        while self
+            .operational_registers
+            .usb_status()
+            .read()
+            .get_data_host_controller_halted()
+        {
+            debug!("waiting")
+        }
+
+        Controller {
+            _phantomdata: PhantomData,
+            capability_registers: self.capability_registers,
+            operational_registers: self.operational_registers,
+            runtime_registers: self.runtime_registers,
+            cx: self.cx,
+        }
+    }
+}
+
+impl<
+        'a,
+        const DEV: usize,
+        const CMD: usize,
+        const SEG_SIZE: usize,
+        const SEG_NUM: usize,
+        const TAB_SIZE: usize,
+    > Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+{
 }

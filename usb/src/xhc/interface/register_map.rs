@@ -146,6 +146,7 @@ where
 
 pub trait IntoSegment<const N: usize> {
     type Element;
+
     fn into_segment(self) -> [Self::Element; N];
 }
 
@@ -324,6 +325,142 @@ bitfield_struct! {
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
     #[endian = "little"]
+    pub struct PortSC {
+        data: u32 => {
+            #[bits(1)]
+            current_connect_status: bool,
+            #[bits(1)]
+            port_enabled_disabled: bool,
+            #[bits(1)]
+            _rsvdz1: bool,
+            #[bits(1)]
+            over_current_active: bool,
+            #[bits(1)]
+            port_reset: bool,
+            #[bits(4)]
+            port_link_state: u8,
+            #[bits(1)]
+            port_power: bool,
+            #[bits(4)]
+            port_speed: u8,
+            #[bits(2)]
+            port_indicator_control: u8,
+            #[bits(1)]
+            port_link_state_write_strobe: bool,
+            #[bits(1)]
+            connect_status_change: bool,
+            #[bits(1)]
+            port_enabled_disabled_change: bool,
+            #[bits(1)]
+            warm_port_reset_change: bool,
+            #[bits(1)]
+            over_current_change: bool,
+            #[bits(1)]
+            port_reset_change: bool,
+            #[bits(1)]
+            port_link_state_change: bool,
+            #[bits(1)]
+            port_config_error_change: bool,
+            #[bits(1)]
+            cold_attach_status: bool,
+            #[bits(1)]
+            wake_on_connect_enable: bool,
+            #[bits(1)]
+            wake_on_disconnect_enable: bool,
+            #[bits(1)]
+            wake_on_over_current_enable: bool,
+            #[bits(2)]
+            _rsvdz2: u8,
+            #[bits(1)]
+            device_removable: bool,
+            #[bits(1)]
+            warm_port_reset: bool,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct PortPowerMSC3 {
+        data: u32 => {
+            #[bits(8)]
+            u1_timeout: u8,
+            #[bits(8)]
+            u2_timeout: u8,
+            #[bits(1)]
+            force_link_accept: bool,
+            #[bits(15)]
+            _rsvdp: u16,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct PortLinkInfo3 {
+        data: u32 => {
+            #[bits(16)]
+            link_error_count: u16,
+            #[bits(4)]
+            rx_lane_count: u8,
+            #[bits(4)]
+            tx_lane_count: u8,
+            #[bits(8)]
+            _rsvdp: u8,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct PortHardwareLPMControl3 {
+        data: u32 => {
+            #[bits(16)]
+            link_soft_error_count: u16,
+            #[bits(16)]
+            _rsvdp: u16,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct PortRegisterSet<'a> {
+    port_status_and_control: RegisterMap<'a, 1, PortSC, ReadWrite>,
+    port_power_management_status_and_control: RegisterMap<'a, 1, PortPowerMSC3, ReadWrite>,
+    port_link_info: RegisterMap<'a, 1, PortLinkInfo3, ReadWrite>,
+    port_hardware_lpm_control: RegisterMap<'a, 1, PortHardwareLPMControl3, ReadWrite>,
+}
+
+impl<'a> PortRegisterSet<'a> {
+    pub const PORT_STATUS_AND_CONTROL_OFFSET: usize = 0x00;
+    pub const PORT_POWER_MANAGEMENT_STATUS_AND_CONTROL_OFFSET: usize = 0x04;
+    pub const PORT_LINK_INFO: usize = 0x08;
+    pub const PORT_HARDWARE_LPM_CONTROL: usize = 0x0c;
+
+    /// # Safety
+    /// `base` = Operational Base + (0x400 + (0x10 * (n–1)))
+    /// where `n` = 1, 2, 3, ... , MaxPorts
+    pub unsafe fn new(base: *mut u8) -> Self {
+        Self {
+            port_status_and_control: RegisterMap::from_raw_mut(
+                base.add(Self::PORT_STATUS_AND_CONTROL_OFFSET).cast(),
+            ),
+            port_power_management_status_and_control: RegisterMap::from_raw_mut(
+                base.add(Self::PORT_POWER_MANAGEMENT_STATUS_AND_CONTROL_OFFSET)
+                    .cast(),
+            ),
+            port_link_info: RegisterMap::from_raw_mut(base.add(Self::PORT_LINK_INFO).cast()),
+            port_hardware_lpm_control: RegisterMap::from_raw_mut(
+                base.add(Self::PORT_HARDWARE_LPM_CONTROL).cast(),
+            ),
+        }
+    }
+}
+
+bitfield_struct! {
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct UsbCommand {
         data: u32 => {
             #[bits(1)]
@@ -444,6 +581,7 @@ bitfield_struct! {
     }
 }
 
+pub const PORT_REGISTER_SET_NUM: usize = 1;
 #[derive(Debug)]
 pub struct OperationalRegisters<'a> {
     usb_command: RegisterMap<'a, 1, UsbCommand, ReadWrite>,
@@ -453,6 +591,7 @@ pub struct OperationalRegisters<'a> {
     command_ring_control: RegisterMap<'a, 2, CommandRingControl, ReadWrite>,
     device_context_base_address_array_pointer: RegisterMap<'a, 2, Dcbaap, ReadWrite>,
     configure: RegisterMap<'a, 1, Configure, ReadWrite>,
+    port_register_set: [PortRegisterSet<'a>; PORT_REGISTER_SET_NUM],
 }
 
 impl<'a> OperationalRegisters<'a> {
@@ -463,10 +602,20 @@ impl<'a> OperationalRegisters<'a> {
     pub const COMMAND_RING_CONTROL_OFFSET: usize = 0x18;
     pub const DEVICE_CONTEXT_BASE_ADDRESS_ARRAY_POINTER_OFFSET: usize = 0x30;
     pub const CONFIGUR_OFFSET: usize = 0x38;
+    pub const PORT_REGISTER_SET_OFFSET: usize = 0x400;
 
     /// # Safety
-    /// base is the beginning of the host controller's MMIO address space.
+    /// base is the beginning of the Operational Register space.
     pub unsafe fn new(base: *mut u8) -> Self {
+        let mut arr: [MaybeUninit<PortRegisterSet>; PORT_REGISTER_SET_NUM] =
+            unsafe { MaybeUninit::zeroed().assume_init() };
+        for (idx, elem) in arr.iter_mut().enumerate() {
+            elem.write(PortRegisterSet::new(
+                base.add(Self::PORT_REGISTER_SET_OFFSET + (0x10 * idx)),
+            ));
+        }
+        let port_register_set = core::mem::transmute(arr);
+
         Self {
             usb_command: RegisterMap::from_raw_mut(base.add(Self::USB_COMMAND_OFFSET).cast()),
             usb_status: RegisterMap::from_raw_mut(base.add(Self::USB_STATUS_OFFSET).cast()),
@@ -482,6 +631,7 @@ impl<'a> OperationalRegisters<'a> {
                     .cast(),
             ),
             configure: RegisterMap::from_raw_mut(base.add(Self::CONFIGUR_OFFSET).cast()),
+            port_register_set,
         }
     }
 
@@ -655,9 +805,17 @@ impl<'a> RuntimeRegisters<'a> {
     /// # Safety
     /// base is the beginning of the Runtime Register space.
     pub unsafe fn new(base: *mut u8) -> Self {
-        let interrupter_register_sets = [0; Self::INTERRUPTER_REGISTER_SET_NUM].map(|idx| {
-            InterrupterRegisterSet::new(base.add(Self::INTERRUPTER_REGISTER_OFFSET + (32 * idx)))
-        });
+        let mut arr: [MaybeUninit<InterrupterRegisterSet>; INTERRUPTER_REGISTER_SET_NUM] =
+            unsafe { MaybeUninit::zeroed().assume_init() };
+
+        for (idx, elem) in arr.iter_mut().enumerate() {
+            elem.write(InterrupterRegisterSet::new(
+                base.add(Self::INTERRUPTER_REGISTER_OFFSET + (32 * idx)),
+            ));
+        }
+
+        let interrupter_register_sets = unsafe { core::mem::transmute(arr) };
+
         Self {
             _microframe_index: RegisterMap::from_raw(
                 base.add(Self::MICROFRAME_INDEX_OFFSET).cast(),

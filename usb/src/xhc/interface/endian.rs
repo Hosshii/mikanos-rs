@@ -13,6 +13,34 @@ pub trait EndianInto<T = Self> {
 pub trait Endian<T = Self>: EndianFrom<T> + EndianInto<T> {}
 impl<T> Endian<T> for T where T: EndianFrom<T> + EndianInto<T> {}
 
+impl EndianFrom for bool {
+    fn from_le(v: Self) -> Self {
+        v
+    }
+
+    fn from_be(v: Self) -> Self {
+        v
+    }
+
+    fn from_ne(v: Self) -> Self {
+        v
+    }
+}
+
+impl EndianInto for bool {
+    fn to_le(self) -> Self {
+        self
+    }
+
+    fn to_be(self) -> Self {
+        self
+    }
+
+    fn to_ne(self) -> Self {
+        self
+    }
+}
+
 macro_rules! impl_endian {
     ($($type:ty),*) => {
         $(
