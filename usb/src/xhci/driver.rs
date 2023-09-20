@@ -1,5 +1,6 @@
-use super::interface::{
+use super::{
     context::DeviceContext,
+    error::{Error, Result},
     register_map::{
         CapabilityRegisters, Doorbell, DoorbellRegisters, OperationalRegisters, RuntimeRegisters,
     },
@@ -13,10 +14,6 @@ use core::{
     pin::Pin,
     ptr,
 };
-use error::{Error, Result};
-
-pub mod error;
-mod port;
 
 pub struct Uninitialized;
 pub struct Initialized;

@@ -17,7 +17,10 @@ use kernel::{
     pci::{Device, Pci, PciExtUsb as _},
     println, KernelArg,
 };
-use usb::xhc::driver::{error::Error as UsbError, Context, Controller};
+use usb::xhci::{
+    driver::{Context, Controller},
+    error::Error as UsbError,
+};
 
 const MOUSE_CURSOR_HEIGHT: usize = 24;
 const MOUSE_CURSOR_SHAPE: [&str; MOUSE_CURSOR_HEIGHT] = [
