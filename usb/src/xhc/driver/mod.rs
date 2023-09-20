@@ -1,9 +1,10 @@
-#![allow(dead_code)]
-
 use super::interface::{
     context::DeviceContext,
-    register_map::{CapabilityRegisters, OperationalRegisters, RuntimeRegisters},
-    ring::{EventRingSegmentTableEntry, TCRing},
+    register_map::{
+        CapabilityRegisters, Doorbell, DoorbellRegisters, OperationalRegisters, RuntimeRegisters,
+    },
+    ring::{EventRing, EventRingSegmentTableEntry, TCRing},
+    trb::{CommandCompletionEvent, Trb, TrbRaw},
 };
 use common::{debug, info};
 use core::{
@@ -15,6 +16,7 @@ use core::{
 use error::{Error, Result};
 
 pub mod error;
+mod port;
 
 pub struct Uninitialized;
 pub struct Initialized;
@@ -35,7 +37,7 @@ pub struct Context<
 > {
     device_context_ptrs: [*mut DeviceContext; DEV],
     command_ring: TCRing<CMD>,
-    event_ring_segments: [TCRing<SEG_SIZE>; SEG_NUM],
+    event_ring_segments: [EventRing<SEG_SIZE>; SEG_NUM],
     event_ring_segment_table: [EventRingSegmentTableEntry; TAB_SIZE],
     _phantom_pinned: PhantomPinned,
 }
@@ -51,7 +53,7 @@ impl<
     pub fn zeroed() -> Self {
         let device_context_ptrs = [ptr::null_mut(); DEV];
         let command_ring = TCRing::new();
-        let event_ring_segments = [(); SEG_NUM].map(|_| TCRing::zeroed());
+        let event_ring_segments = [(); SEG_NUM].map(|_| EventRing::new());
         let event_ring_segment_table = [EventRingSegmentTableEntry::zeroed(); TAB_SIZE];
 
         Self {
@@ -61,6 +63,10 @@ impl<
             event_ring_segment_table,
             _phantom_pinned: PhantomPinned,
         }
+    }
+
+    pub fn primary_ring_mut(&mut self) -> &mut EventRing<SEG_SIZE> {
+        self.event_ring_segments.index_mut(0)
     }
 }
 
@@ -77,6 +83,9 @@ pub struct Controller<
     capability_registers: CapabilityRegisters<'static>,
     operational_registers: OperationalRegisters<'static>,
     runtime_registers: RuntimeRegisters<'static>,
+    doorbell_registers: DoorbellRegisters<'static>,
+    // 配列のポインタが動かないようにしたい
+    // 今の所move以外は大丈夫
     cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>>,
 }
 
@@ -106,11 +115,21 @@ impl<
         let rts_base = bar + rts_off as u64;
         let runtime_registers = unsafe { RuntimeRegisters::new(rts_base as *mut u8) };
 
+        let dboff = capability_registers.db_offset().read().get_data_offset();
+        let db_base = bar + dboff as u64;
+        let db_len = capability_registers
+            .hcs_paracm1()
+            .read()
+            .get_data_max_device_slots();
+        let doorbell_registers =
+            unsafe { DoorbellRegisters::new(db_base as *mut u8, db_len as usize) };
+
         Self {
             _phantomdata: PhantomData,
             capability_registers,
             operational_registers,
             runtime_registers,
+            doorbell_registers,
             cx,
         }
     }
@@ -128,6 +147,7 @@ impl<
             capability_registers: self.capability_registers,
             operational_registers: self.operational_registers,
             runtime_registers: self.runtime_registers,
+            doorbell_registers: self.doorbell_registers,
             cx: self.cx,
         })
     }
@@ -305,6 +325,7 @@ impl<
             capability_registers: self.capability_registers,
             operational_registers: self.operational_registers,
             runtime_registers: self.runtime_registers,
+            doorbell_registers: self.doorbell_registers,
             cx: self.cx,
         }
     }
@@ -317,6 +338,46 @@ impl<
         const SEG_SIZE: usize,
         const SEG_NUM: usize,
         const TAB_SIZE: usize,
-    > Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+    > Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
 {
+    pub fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
+        unsafe { self.cx.as_mut().get_unchecked_mut().command_ring.push(cmd) }
+    }
+
+    pub fn notify_command(&mut self) {
+        let cmd = Doorbell::default();
+        self.doorbell_registers[0].write(cmd);
+    }
+
+    pub fn process_primary_event(&mut self) {
+        let Some(event) = unsafe { self.cx.as_mut().get_unchecked_mut() }
+            .primary_ring_mut()
+            .pop::<Trb>()
+        else {
+            return;
+        };
+
+        match event {
+            Trb::Normal => todo!(),
+            Trb::SetupStage => todo!(),
+            Trb::DataStage => todo!(),
+            Trb::StatusStage => todo!(),
+            Trb::Link(_) => todo!(),
+            Trb::NoOp => todo!(),
+            Trb::EnableSlotCommand => todo!(),
+            Trb::AddressDeviceCommand => todo!(),
+            Trb::ConfigureEndpoint => todo!(),
+            Trb::NoOpCommand => todo!(),
+            Trb::TransferEvent => todo!(),
+            Trb::CommandCompletionEvent(e) => self.process_command_completion_event(e),
+            Trb::PortStatusChangeEvent => todo!(),
+            Trb::Unknown(_) => todo!(),
+        }
+    }
+
+    fn process_command_completion_event(&mut self, event: CommandCompletionEvent) {
+        let issuer = unsafe { event.issuer() };
+        let slot_id = event.get_control_slot_id();
+        debug!("slot_id: {}, issuer: {:?}", slot_id, issuer)
+    }
 }

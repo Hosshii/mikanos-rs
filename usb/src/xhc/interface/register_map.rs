@@ -1,5 +1,10 @@
 use super::endian::{Endian, EndianInto};
-use core::{marker::PhantomData, mem::MaybeUninit, slice};
+use core::{
+    marker::PhantomData,
+    mem::MaybeUninit,
+    ops::{Index, IndexMut},
+    slice,
+};
 use macros::{bitfield_struct, FromSegment, IntoSegment};
 
 mod sealed {
@@ -253,6 +258,18 @@ bitfield_struct! {
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
     #[endian = "little"]
+    pub struct DbOffset {
+        data: u32 => {
+            #[bits(2)]
+            _rsvdz: u8,
+            #[bits(30)]
+            offset: u32,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
     pub struct RtsOffset {
         data: u32 => {
             #[bits(5)]
@@ -271,6 +288,7 @@ pub struct CapabilityRegisters<'a> {
     hcs_paracm1: RegisterMap<'a, 1, HcsParams1, ReadOnly>,
     hcs_paracm2: RegisterMap<'a, 1, HcsParams2, ReadOnly>,
     hcs_params3: RegisterMap<'a, 1, HcsParams3, ReadOnly>,
+    db_offset: RegisterMap<'a, 1, DbOffset, ReadOnly>,
     rts_offset: RegisterMap<'a, 1, RtsOffset, ReadOnly>,
 }
 
@@ -281,6 +299,7 @@ impl<'a> CapabilityRegisters<'a> {
     pub const HCS_PARAMS2_OFFSET: usize = 0x08;
     pub const HCS_PARAMS3_OFFSET: usize = 0x0C;
 
+    pub const DB_OFFSET_OFFSET: usize = 0x14;
     pub const RTS_OFFSET_OFFSET: usize = 0x18;
 
     /// # Safety
@@ -292,6 +311,8 @@ impl<'a> CapabilityRegisters<'a> {
             hcs_paracm1: RegisterMap::from_raw(base.add(Self::HCS_PARAMS1_OFFSET).cast()),
             hcs_paracm2: RegisterMap::from_raw(base.add(Self::HCS_PARAMS2_OFFSET).cast()),
             hcs_params3: RegisterMap::from_raw(base.add(Self::HCS_PARAMS3_OFFSET).cast()),
+
+            db_offset: RegisterMap::from_raw(base.add(Self::DB_OFFSET_OFFSET).cast()),
             rts_offset: RegisterMap::from_raw(base.add(Self::RTS_OFFSET_OFFSET).cast()),
         }
     }
@@ -318,6 +339,10 @@ impl<'a> CapabilityRegisters<'a> {
 
     pub fn rts_offset(&self) -> &RegisterMap<'a, 1, RtsOffset, ReadOnly> {
         &self.rts_offset
+    }
+
+    pub fn db_offset(&self) -> &RegisterMap<'a, 1, DbOffset, ReadOnly> {
+        &self.db_offset
     }
 }
 
@@ -454,6 +479,46 @@ impl<'a> PortRegisterSet<'a> {
                 base.add(Self::PORT_HARDWARE_LPM_CONTROL).cast(),
             ),
         }
+    }
+
+    pub fn port_status_and_control(&self) -> &RegisterMap<'a, 1, PortSC, ReadWrite> {
+        &self.port_status_and_control
+    }
+
+    pub fn port_power_management_status_and_control(
+        &self,
+    ) -> &RegisterMap<'a, 1, PortPowerMSC3, ReadWrite> {
+        &self.port_power_management_status_and_control
+    }
+
+    pub fn port_link_info(&self) -> &RegisterMap<'a, 1, PortLinkInfo3, ReadWrite> {
+        &self.port_link_info
+    }
+
+    pub fn port_hardware_lpm_control(
+        &self,
+    ) -> &RegisterMap<'a, 1, PortHardwareLPMControl3, ReadWrite> {
+        &self.port_hardware_lpm_control
+    }
+
+    pub fn port_status_and_control_mut(&mut self) -> &mut RegisterMap<'a, 1, PortSC, ReadWrite> {
+        &mut self.port_status_and_control
+    }
+
+    pub fn port_power_management_status_and_control_mut(
+        &mut self,
+    ) -> &mut RegisterMap<'a, 1, PortPowerMSC3, ReadWrite> {
+        &mut self.port_power_management_status_and_control
+    }
+
+    pub fn port_link_info_mut(&mut self) -> &mut RegisterMap<'a, 1, PortLinkInfo3, ReadWrite> {
+        &mut self.port_link_info
+    }
+
+    pub fn port_hardware_lpm_control_mut(
+        &mut self,
+    ) -> &mut RegisterMap<'a, 1, PortHardwareLPMControl3, ReadWrite> {
+        &mut self.port_hardware_lpm_control
     }
 }
 
@@ -834,5 +899,67 @@ impl<'a> RuntimeRegisters<'a> {
         &mut self,
     ) -> &mut [InterrupterRegisterSet<'a>; INTERRUPTER_REGISTER_SET_NUM] {
         &mut self.interrupter_register_sets
+    }
+}
+
+bitfield_struct! {
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Doorbell {
+        data: u32 => {
+            #[bits(8)]
+            db_target: u8,
+            #[bits(8)]
+            _rsvdz: u8,
+            #[bits(16)]
+            db_task_id: u16,
+        }
+    }
+}
+
+pub const MAX_DOORBELL_NUM: usize = 256;
+#[derive(Debug)]
+pub struct DoorbellRegisters<'a> {
+    regs: [MaybeUninit<RegisterMap<'a, 1, Doorbell, ReadWrite>>; MAX_DOORBELL_NUM],
+    len: usize,
+}
+
+impl<'a> DoorbellRegisters<'a> {
+    /// # Safety
+    /// base is base of doorbell registers(cap base + dboff)
+    pub unsafe fn new(base: *mut u8, len: usize) -> Self {
+        assert!(len <= MAX_DOORBELL_NUM);
+
+        let mut regs: [MaybeUninit<RegisterMap<'a, 1, Doorbell, ReadWrite>>; MAX_DOORBELL_NUM] =
+            unsafe { MaybeUninit::uninit().assume_init() };
+
+        for (i, elem) in regs.iter_mut().enumerate().take(len) {
+            elem.write(RegisterMap::from_raw_mut(base.add(0x04 * i).cast()));
+        }
+
+        Self { regs, len }
+    }
+}
+
+impl<'a> Index<usize> for DoorbellRegisters<'a> {
+    type Output = RegisterMap<'a, 1, Doorbell, ReadWrite>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if index < self.len {
+            unsafe { self.regs[index].assume_init_ref() }
+        } else {
+            panic!("index out of range: {}", index)
+        }
+    }
+}
+
+impl<'a> IndexMut<usize> for DoorbellRegisters<'a> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        if index < self.len {
+            unsafe { self.regs[index].assume_init_mut() }
+        } else {
+            panic!("index out of range: {}", index)
+        }
     }
 }

@@ -1,4 +1,4 @@
-use super::trb::{Link, TRBRaw};
+use super::trb::{Link, TrbRaw};
 use common::ring_buf::RingBuffer;
 use core::mem::MaybeUninit;
 use macros::bitfield_struct;
@@ -7,7 +7,7 @@ use macros::bitfield_struct;
 #[repr(C, align(64))]
 #[derive(Debug)]
 pub struct TCRing<const SIZE: usize> {
-    ring_buf: RingBuffer<TRBRaw, SIZE>,
+    ring_buf: RingBuffer<TrbRaw, SIZE>,
     cycle_bit: bool,
 }
 
@@ -31,13 +31,16 @@ impl<const SIZE: usize> TCRing<SIZE> {
         }
     }
 
-    pub fn push(&mut self, v: impl Into<TRBRaw>) {
-        self.ring_buf.push_overwrite(v.into());
-        if self.ring_buf.len() == SIZE - 1 {
+    pub fn push(&mut self, v: impl Into<TrbRaw>) {
+        let mut v: TrbRaw = v.into();
+        v.set_remain_cycle_bit(self.cycle_bit);
+        self.ring_buf.push_overwrite(v);
+
+        if self.ring_buf.tail() % SIZE == SIZE - 1 {
             let link = Link::new(self.ring_buf.as_ptr() as *const ())
                 .with_remain_toggle_cycle(true)
                 .with_remain_cycle_bit(self.cycle_bit);
-            let base = TRBRaw::from(link);
+            let base = TrbRaw::from(link);
             self.ring_buf.push_overwrite(base);
 
             self.cycle_bit = !self.cycle_bit;
@@ -46,11 +49,11 @@ impl<const SIZE: usize> TCRing<SIZE> {
         }
     }
 
-    pub fn as_ptr(&self) -> *const MaybeUninit<TRBRaw> {
+    pub fn as_ptr(&self) -> *const MaybeUninit<TrbRaw> {
         self.ring_buf.as_ptr()
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<TRBRaw> {
+    pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<TrbRaw> {
         self.ring_buf.as_mut_ptr()
     }
 
@@ -61,7 +64,7 @@ impl<const SIZE: usize> TCRing<SIZE> {
 
 #[repr(C, align(64))]
 pub struct EventRing<const SIZE: usize> {
-    buf: [TRBRaw; SIZE],
+    buf: [TrbRaw; SIZE],
     cycle_bit: bool,
     // position next read
     head: usize,
@@ -70,7 +73,7 @@ pub struct EventRing<const SIZE: usize> {
 impl<const SIZE: usize> EventRing<SIZE> {
     pub fn new() -> Self {
         Self {
-            buf: [TRBRaw::zeroed(); SIZE],
+            buf: [TrbRaw::zeroed(); SIZE],
             cycle_bit: true,
             head: 0,
         }
@@ -78,9 +81,9 @@ impl<const SIZE: usize> EventRing<SIZE> {
 
     pub fn pop<T>(&mut self) -> Option<T>
     where
-        T: From<TRBRaw>,
+        T: From<TrbRaw>,
     {
-        if self.buf[self.head].get_remain_circle_bit() == self.cycle_bit {
+        if self.buf[self.head].get_remain_cycle_bit() == self.cycle_bit {
             let idx = self.head;
 
             if self.head == self.buf.len() - 1 {
@@ -96,11 +99,11 @@ impl<const SIZE: usize> EventRing<SIZE> {
         }
     }
 
-    pub fn as_ptr(&self) -> *const TRBRaw {
+    pub fn as_ptr(&self) -> *const TrbRaw {
         self.buf.as_ptr()
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut TRBRaw {
+    pub fn as_mut_ptr(&mut self) -> *mut TrbRaw {
         self.buf.as_mut_ptr()
     }
 }

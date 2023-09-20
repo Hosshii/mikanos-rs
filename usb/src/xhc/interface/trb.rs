@@ -7,7 +7,7 @@ pub(crate) const fn check_size<T>(size: usize) {
     }
 }
 
-const _: () = check_size::<TRBRaw>(16);
+const _: () = check_size::<TrbRaw>(16);
 
 bitfield_struct! {
     /// FFI types.
@@ -15,13 +15,13 @@ bitfield_struct! {
     #[repr(C, packed)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
     #[endian = "little"]
-    pub struct TRBRaw {
+    pub struct TrbRaw {
         parameter0: u32,
         parameter1: u32,
         status: u32,
         remain: u16 => {
             #[bits(1)]
-            circle_bit: bool,
+            cycle_bit: bool,
             #[bits(1)]
             evaluate_next_trb: bool,
             #[bits(8)]
@@ -33,7 +33,7 @@ bitfield_struct! {
     }
 }
 
-impl TRBRaw {
+impl TrbRaw {
     pub fn new(parameter0: u32, parameter1: u32, status: u32, control: u16, remain: u16) -> Self {
         Self::default()
             .with_parameter0(parameter0)
@@ -48,13 +48,19 @@ impl TRBRaw {
     }
 }
 
-impl From<Link> for TRBRaw {
+impl From<Link> for TrbRaw {
     fn from(_value: Link) -> Self {
         todo!()
     }
 }
 
-impl From<Trb> for TRBRaw {
+impl From<EnableSlotCommand> for TrbRaw {
+    fn from(_value: EnableSlotCommand) -> Self {
+        todo!()
+    }
+}
+
+impl From<Trb> for TrbRaw {
     fn from(_value: Trb) -> Self {
         todo!()
     }
@@ -181,21 +187,11 @@ bitfield_struct! {
             _rsvdz2: u8,
             #[bits(6)]
             trb_type: TrbType,
-        }
+        },
+        _rsvdz: u16,
 
     }
 }
-
-// pub struct Link {
-//     ring_segment_pointer_lo: u32, // only 28 bits are used. least 4 bits are not used.
-//     ring_segment_pointer_hi: u32,
-//     interrupter_target: u16, // Only 10 bits are used, so masking will be necessary.
-//     cycle_bit: bool,
-//     toggle_cycle: bool,
-//     chain_bit: bool,
-//     interrupt_on_completion: bool,
-//     trb_type: TrbType,
-// }
 
 impl Link {
     pub const TYPE: TrbType = TrbType::Link;
@@ -212,6 +208,99 @@ impl Link {
     }
 }
 
+impl Type for Link {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[endian = "little"]
+    pub struct EnableSlotCommand {
+        _rsvdz1: u32,
+        _rsvdz2: u32,
+        _rsvdz3: u32,
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(9)]
+            _rsvdz1: u16,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(5)]
+            slot_type: u8,
+            #[bits(11)]
+            _rsvdz: u16,
+        }
+    }
+}
+
+impl EnableSlotCommand {
+    pub const TYPE: TrbType = TrbType::EnableSlotCommand;
+}
+
+impl Type for EnableSlotCommand {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[endian = "little"]
+    pub struct CommandCompletionEvent {
+        params: u64 => {
+            #[bits(4)]
+            _rsvdz: u8,
+            #[bits(60)]
+            ptr: u64
+        },
+        status: u32 => {
+            #[bits(24)]
+            command_completion_parameter: u32,
+            #[bits(8)]
+            completion_code: u8,
+        },
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(9)]
+            _rsvdz: u16,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(8)]
+            vf_id: u8,
+            #[bits(8)]
+            slot_id: u8,
+        }
+    }
+}
+
+impl CommandCompletionEvent {
+    pub const TYPE: TrbType = TrbType::CommandConpletionEvent;
+
+    /// # Safety
+    /// issuer ptr must be valid
+    pub unsafe fn issuer(self) -> Trb {
+        let ptr = self.get_params_ptr() as *const TrbRaw;
+        Trb::from(unsafe { *ptr })
+    }
+}
+
+impl Type for CommandCompletionEvent {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Trb {
     Normal,
     SetupStage,
@@ -224,13 +313,38 @@ pub enum Trb {
     ConfigureEndpoint,
     NoOpCommand,
     TransferEvent,
-    CommandConpletionEvent,
+    CommandCompletionEvent(CommandCompletionEvent),
     PortStatusChangeEvent,
     Unknown(u8),
 }
 
-impl From<TRBRaw> for Trb {
-    fn from(_value: TRBRaw) -> Self {
+impl From<TrbRaw> for Trb {
+    fn from(_value: TrbRaw) -> Self {
         todo!()
     }
+}
+
+impl Type for Trb {
+    fn get_type(self) -> TrbType {
+        match self {
+            Trb::Normal => todo!(),
+            Trb::SetupStage => todo!(),
+            Trb::DataStage => todo!(),
+            Trb::StatusStage => todo!(),
+            Trb::Link(_) => Link::TYPE,
+            Trb::NoOp => todo!(),
+            Trb::EnableSlotCommand => todo!(),
+            Trb::AddressDeviceCommand => todo!(),
+            Trb::ConfigureEndpoint => todo!(),
+            Trb::NoOpCommand => todo!(),
+            Trb::TransferEvent => todo!(),
+            Trb::CommandCompletionEvent(_) => CommandCompletionEvent::TYPE,
+            Trb::PortStatusChangeEvent => todo!(),
+            Trb::Unknown(x) => TrbType::Unknown(x),
+        }
+    }
+}
+
+trait Type {
+    fn get_type(self) -> TrbType;
 }

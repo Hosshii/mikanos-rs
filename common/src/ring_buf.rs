@@ -130,6 +130,10 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
     pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<T> {
         self.buf.as_mut_ptr()
     }
+
+    pub fn tail(&self) -> usize {
+        self.tail
+    }
 }
 
 impl<T, const SIZE: usize> Index<usize> for RingBuffer<T, SIZE> {
