@@ -136,9 +136,9 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     pci.scan_all_bus()?;
     info!("scan all bus");
 
-    for dev in pci.devices() {
-        debug!("{:?}", dev.class_code());
-    }
+    // for dev in pci.devices() {
+    //     debug!("{:?}", dev.class_code());
+    // }
 
     let usb = pci
         .find_usb()
@@ -158,9 +158,18 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let xhci = xhci.initialize()?;
     info!("initialize finished!");
     info!("run xhci");
-    xhci.run();
+    let mut xhci = xhci.run();
 
-    Ok(())
+    for (idx, mut port) in xhci.ports_mut().enumerate() {
+        // debug!("port {}. is connected = {}", idx, port.is_connected());
+        if port.is_connected() {
+            port.configure()?;
+        }
+    }
+
+    loop {
+        xhci.process_primary_event()?;
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

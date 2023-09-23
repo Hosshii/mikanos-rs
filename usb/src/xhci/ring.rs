@@ -1,5 +1,8 @@
-use super::trb::{Link, TrbRaw};
-use common::ring_buf::RingBuffer;
+use super::{
+    register_map::InterrupterRegisterSet,
+    trb::{Link, TrbRaw},
+};
+use common::{debug, ring_buf::RingBuffer};
 use core::mem::MaybeUninit;
 use macros::bitfield_struct;
 
@@ -67,7 +70,6 @@ pub struct EventRing<const SIZE: usize> {
     buf: [TrbRaw; SIZE],
     cycle_bit: bool,
     // position next read
-    head: usize,
 }
 
 impl<const SIZE: usize> EventRing<SIZE> {
@@ -75,28 +77,55 @@ impl<const SIZE: usize> EventRing<SIZE> {
         Self {
             buf: [TrbRaw::zeroed(); SIZE],
             cycle_bit: true,
-            head: 0,
         }
     }
 
-    pub fn pop<T>(&mut self) -> Option<T>
+    pub fn pop<T>(&mut self, irs: &mut InterrupterRegisterSet<'_>) -> Option<T>
     where
         T: From<TrbRaw>,
     {
-        if self.buf[self.head].get_remain_cycle_bit() == self.cycle_bit {
-            let idx = self.head;
+        let ptr = irs.event_ring_dequeue_pointer().read().get_data_ptr() << 4;
+        let ptr = ptr as *mut TrbRaw;
+        assert!(self.buf.as_mut_ptr_range().contains(&ptr));
 
-            if self.head == self.buf.len() - 1 {
-                self.head = 0;
-                self.cycle_bit = !self.cycle_bit;
-            } else {
-                self.head += 1;
-            }
-
-            Some(T::from(self.buf[idx]))
-        } else {
-            None
+        if unsafe { *ptr }.get_remain_cycle_bit() != self.cycle_bit {
+            return None;
         }
+
+        // forward erdp
+        let segment_begin = irs
+            .event_ring_segment_table_base_address()
+            .read()
+            .get_data_ptr()
+            << 6;
+        let segment_begin = segment_begin as *mut TrbRaw;
+
+        let segment_size = irs
+            .event_ring_segment_table_size()
+            .read()
+            .get_data_event_ring_segment_table_size();
+
+        let segment_end = unsafe { segment_begin.add(segment_size as usize) };
+
+        if ptr == segment_end {
+            self.cycle_bit = !self.cycle_bit;
+        }
+
+        let next_ptr = if ptr == segment_end {
+            segment_begin
+        } else {
+            unsafe { ptr.add(1) }
+        };
+
+        let erdp = irs
+            .event_ring_dequeue_pointer()
+            .read()
+            .with_data_ptr((next_ptr as u64) >> 4);
+
+        irs.event_ring_dequeue_pointer_mut().write(erdp);
+        debug!("{:?}", unsafe { *ptr });
+
+        Some(T::from(unsafe { *ptr }))
     }
 
     pub fn as_ptr(&self) -> *const TrbRaw {

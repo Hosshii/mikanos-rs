@@ -1,6 +1,7 @@
 use super::{
     context::DeviceContext,
     error::{Error, Result},
+    port::PortWrapper,
     register_map::{
         CapabilityRegisters, Doorbell, DoorbellRegisters, OperationalRegisters, RuntimeRegisters,
     },
@@ -88,6 +89,18 @@ pub struct Controller<
 
 impl<
         'a,
+        State,
+        const DEV: usize,
+        const CMD: usize,
+        const SEG_SIZE: usize,
+        const SEG_NUM: usize,
+        const TAB_SIZE: usize,
+    > Controller<'a, State, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+{
+}
+
+impl<
+        'a,
         const DEV: usize,
         const CMD: usize,
         const SEG_SIZE: usize,
@@ -102,24 +115,33 @@ impl<
         bar: u64,
         cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>>,
     ) -> Self {
+        debug!("bar: {:x?}", bar);
         let capability_registers = unsafe { CapabilityRegisters::new(bar as *const u8) };
 
         let op_off = capability_registers.cap_length().read().get_data();
         let op_base = bar + op_off as u64;
-        let operational_registers = unsafe { OperationalRegisters::new(op_base as *mut u8) };
+        let max_ports = capability_registers
+            .hcs_paracm1()
+            .read()
+            .get_data_max_ports();
+        let operational_registers =
+            unsafe { OperationalRegisters::new(op_base as *mut u8, max_ports) };
+        debug!("op_off: {:x?}, op_base: {:x?}", op_off, op_base);
 
-        let rts_off = capability_registers.rts_offset().read().get_data_offset();
+        let rts_off = capability_registers.rts_offset().read().get_data_offset() << 5;
         let rts_base = bar + rts_off as u64;
         let runtime_registers = unsafe { RuntimeRegisters::new(rts_base as *mut u8) };
+        debug!("rts_off: {:x?}, rts_base: {:x?}", rts_off, rts_base);
 
-        let dboff = capability_registers.db_offset().read().get_data_offset();
-        let db_base = bar + dboff as u64;
+        let db_off = capability_registers.db_offset().read().get_data_offset() << 2;
+        let db_base = bar + db_off as u64;
         let db_len = capability_registers
             .hcs_paracm1()
             .read()
             .get_data_max_device_slots();
         let doorbell_registers =
             unsafe { DoorbellRegisters::new(db_base as *mut u8, db_len as usize) };
+        debug!("db_off: {:x?}, db_base: {:x?}", db_off, db_base);
 
         Self {
             _phantomdata: PhantomData,
@@ -138,6 +160,7 @@ impl<
         self.set_device_context()?;
         self.register_command_ring();
         self.register_event_ring();
+        self.config_interrupte();
 
         Ok(Controller {
             _phantomdata: PhantomData,
@@ -195,7 +218,7 @@ impl<
         debug!("max slots: {}", max_device_slots);
 
         if DEV < max_device_slots as usize {
-            return Err(Error::lack_of_max_slots());
+            return Err(Error::lack_of_device_contexts());
         }
 
         let mut config = self.operational_registers.configure().read();
@@ -250,10 +273,10 @@ impl<
 
     fn register_event_ring(&mut self) {
         debug!("start register event ring");
-        let size = unsafe {
+        let mut size = 0;
+        unsafe {
             let cx = self.cx.as_mut().get_unchecked_mut();
 
-            let mut count = 0;
             for (entry, segment) in cx
                 .event_ring_segment_table
                 .iter_mut()
@@ -261,27 +284,37 @@ impl<
             {
                 let addr = segment.as_mut_ptr();
                 entry.set_ring_segment_base_address_data((addr as u64) >> 6);
-                count += 1;
-            }
 
-            count
+                let buf_size = SEG_SIZE;
+                entry.set_ring_segment_size_data(buf_size as u16);
+
+                size += 1;
+            }
         };
 
-        let primary = self
-            .runtime_registers
-            .get_interrupter_register_sets_mut()
-            .index_mut(0);
+        let primary = self.runtime_registers.get_primary_interrupter_mut();
 
         debug!("write erstsz: {}", size);
         let mut erstsz = primary.event_ring_segment_table_size().read();
         erstsz.set_data_event_ring_segment_table_size(size);
         primary.event_ring_segment_table_size_mut().write(erstsz);
+        debug!(
+            "read erstsz: {}",
+            primary
+                .event_ring_segment_table_size()
+                .read()
+                .get_data_event_ring_segment_table_size()
+        );
 
         let mut erdp = primary.event_ring_dequeue_pointer().read();
         let seg0ptr = self.cx.event_ring_segments[0].as_ptr();
-        debug!("write erdp: {:p}", seg0ptr);
+        debug!("write erdp: {}", (seg0ptr as u64) >> 4);
         erdp.set_data_ptr((seg0ptr as u64) >> 4);
         primary.event_ring_dequeue_pointer_mut().write(erdp);
+        debug!(
+            "read erdp: {}",
+            primary.event_ring_dequeue_pointer().read().get_data_ptr()
+        );
 
         let mut erstba = primary.event_ring_segment_table_base_address().read();
         let tb0addr = self.cx.event_ring_segment_table.as_ptr();
@@ -290,6 +323,25 @@ impl<
         primary
             .event_ring_segment_table_base_address_mut()
             .write(erstba);
+    }
+
+    fn config_interrupte(&mut self) {
+        let primary = self.runtime_registers.get_primary_interrupter_mut();
+
+        let mut imod = primary.interrupt_moderation().read();
+        imod.set_data_interrupt_modification_interval(4000);
+        primary.interrupt_moderation_mut().write(imod);
+
+        let mut iman = primary.interrupt_management().read();
+        iman.set_data_interrupt_pending(true);
+        iman.set_data_interrupt_enable(true);
+        debug!("{:?}", iman);
+        primary.interrupt_management_mut().write(iman);
+        debug!("{:?}", primary.interrupt_management().read());
+
+        let mut cmd = self.operational_registers.usb_command().read();
+        cmd.set_data_interrupter_enable(true);
+        self.operational_registers.usb_command_mut().write(cmd);
     }
 }
 
@@ -337,23 +389,47 @@ impl<
         const TAB_SIZE: usize,
     > Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
 {
-    pub fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
+    pub fn port(&mut self, idx: u8) -> PortWrapper<'_, 'static> {
+        PortWrapper::new(
+            self.operational_registers
+                .port_registers_mut()
+                .index_mut(idx as usize),
+            idx,
+        )
+    }
+
+    pub fn ports_mut(&mut self) -> impl Iterator<Item = PortWrapper<'_, 'static>> {
+        self.operational_registers
+            .port_registers_mut()
+            .iter_mut()
+            .enumerate()
+            .map(|(idx, v)| PortWrapper::new(v, idx as u8))
+    }
+
+    fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
+        let cmd: TrbRaw = cmd.into();
+        debug!("issue command: {:?}", cmd.get_remain_trb_type());
         unsafe { self.cx.as_mut().get_unchecked_mut().command_ring.push(cmd) }
     }
 
-    pub fn notify_command(&mut self) {
+    fn notify_command(&mut self) {
+        debug!("notify command");
         let cmd = Doorbell::default();
         self.doorbell_registers[0].write(cmd);
     }
 
-    pub fn process_primary_event(&mut self) {
+    fn enable_slot(&mut self) {}
+
+    pub fn process_primary_event(&mut self) -> Result<()> {
+        let primary = self.runtime_registers.get_primary_interrupter_mut();
         let Some(event) = unsafe { self.cx.as_mut().get_unchecked_mut() }
             .primary_ring_mut()
-            .pop::<Trb>()
+            .pop::<Trb>(primary)
         else {
-            return;
+            return Ok(());
         };
 
+        debug!("process event");
         match event {
             Trb::Normal => todo!(),
             Trb::SetupStage => todo!(),
@@ -368,13 +444,18 @@ impl<
             Trb::TransferEvent => todo!(),
             Trb::CommandCompletionEvent(e) => self.process_command_completion_event(e),
             Trb::PortStatusChangeEvent => todo!(),
-            Trb::Unknown(_) => todo!(),
+            Trb::Unknown(_) => {
+                debug!("{:?}", event);
+                Ok(())
+            }
         }
     }
 
-    fn process_command_completion_event(&mut self, event: CommandCompletionEvent) {
+    fn process_command_completion_event(&mut self, event: CommandCompletionEvent) -> Result<()> {
+        debug!("process command completion event");
         let issuer = unsafe { event.issuer() };
         let slot_id = event.get_control_slot_id();
-        debug!("slot_id: {}, issuer: {:?}", slot_id, issuer)
+        debug!("slot_id: {}, issuer: {:?}", slot_id, issuer);
+        Ok(())
     }
 }

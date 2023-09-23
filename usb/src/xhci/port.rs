@@ -1,23 +1,26 @@
-use core::marker::PhantomData;
+use common::debug;
 
-use crate::xhc::interface::register_map::PortRegisterSet;
+use crate::xhci::register_map::PortRegisterSet;
 
 use super::error::{Error, Result};
 
-pub enum PortWrapper<'a, 'b> {
-    Disabled(Port<'a, 'b, Disabled>),
-    Enabled(Port<'a, 'b, Enabled>),
-}
-
+#[derive(Debug)]
 pub struct Disabled;
+
+#[derive(Debug)]
 pub struct Enabled;
 
-pub struct Port<'a, 'b, STATUS> {
+#[derive(Debug)]
+pub struct PortWrapper<'a, 'b> {
     set: &'a mut PortRegisterSet<'b>,
-    _phantom_data: PhantomData<STATUS>,
+    port_num: u8,
 }
 
-impl<'a, 'b, STATUS> Port<'a, 'b, STATUS> {
+impl<'a, 'b> PortWrapper<'a, 'b> {
+    pub fn new(set: &'a mut PortRegisterSet<'b>, port_num: u8) -> Self {
+        Self { set, port_num }
+    }
+
     pub fn is_connected(&self) -> bool {
         self.set
             .port_status_and_control()
@@ -31,26 +34,29 @@ impl<'a, 'b, STATUS> Port<'a, 'b, STATUS> {
             .read()
             .get_data_connect_status_change()
     }
-}
 
-impl<'a, 'b> Port<'a, 'b, Disabled> {
-    pub fn reset(self) -> Result<Port<'a, 'b, Enabled>> {
+    fn reset(&mut self) -> Result<()> {
+        debug!("reset port");
         if !self.is_connected() || !self.is_connecded_status_changed() {
             return Err(Error::port_not_newly_connected());
         }
 
-        // TODO: care rw1cs
         let portsc_reg = self.set.port_status_and_control_mut();
-        let mut portsc = portsc_reg.read();
+        let mut portsc = portsc_reg.read().clear_rw1s();
+
         portsc.set_data_port_reset(true);
+
         portsc.set_data_connect_status_change(true);
         portsc_reg.write(portsc);
 
         while portsc_reg.read().get_data_port_reset() {}
 
-        Ok(Port {
-            set: self.set,
-            _phantom_data: PhantomData,
-        })
+        Ok(())
+    }
+
+    pub fn configure(&mut self) -> Result<()> {
+        debug!("configure port");
+        self.reset()?;
+        Ok(())
     }
 }

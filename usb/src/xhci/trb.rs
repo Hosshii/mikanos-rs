@@ -1,6 +1,9 @@
 use super::endian::{EndianFrom, EndianInto};
+use common::debug;
+use core::mem;
 use macros::bitfield_struct;
 
+#[allow(dead_code)]
 pub(crate) const fn check_size<T>(size: usize) {
     if core::mem::size_of::<T>() != size {
         panic!("size unmatced")
@@ -214,6 +217,24 @@ impl Type for Link {
     }
 }
 
+impl TryFrom<TrbRaw> for Link {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                ring_segment_pointer_lo: value.parameter0,
+                ring_segment_pointer_hi: value.parameter1,
+                status: value.status,
+                remain: value.remain,
+                _rsvdz: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
 bitfield_struct! {
     #[repr(C, packed)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -300,6 +321,23 @@ impl Type for CommandCompletionEvent {
     }
 }
 
+impl TryFrom<TrbRaw> for CommandCompletionEvent {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                params: ((value.parameter1 as u64) << 32) | value.parameter0 as u64,
+                status: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Trb {
     Normal,
@@ -319,8 +357,27 @@ pub enum Trb {
 }
 
 impl From<TrbRaw> for Trb {
-    fn from(_value: TrbRaw) -> Self {
-        todo!()
+    fn from(value: TrbRaw) -> Self {
+        unsafe {
+            match value.get_remain_trb_type() {
+                TrbType::Normal => todo!(),
+                TrbType::SetupStage => todo!(),
+                TrbType::DataStage => todo!(),
+                TrbType::StatusStage => todo!(),
+                TrbType::Link => Self::Link(Link::try_from(value).unwrap_unchecked()),
+                TrbType::NoOp => todo!(),
+                TrbType::EnableSlotCommand => todo!(),
+                TrbType::AddressDeviceCommand => todo!(),
+                TrbType::ConfigureEndpoint => todo!(),
+                TrbType::NoOpCommand => todo!(),
+                TrbType::TransferEvent => todo!(),
+                TrbType::CommandConpletionEvent => Self::CommandCompletionEvent(
+                    CommandCompletionEvent::try_from(value).unwrap_unchecked(),
+                ),
+                TrbType::PortStatusChangeEvent => todo!(),
+                TrbType::Unknown(x) => Trb::Unknown(x),
+            }
+        }
     }
 }
 

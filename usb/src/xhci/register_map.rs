@@ -1,5 +1,8 @@
 use super::endian::{Endian, EndianInto};
+use common::debug;
 use core::{
+    array::IntoIter,
+    iter::{Map, Take},
     marker::PhantomData,
     mem::MaybeUninit,
     ops::{Index, IndexMut},
@@ -448,6 +451,21 @@ bitfield_struct! {
     }
 }
 
+impl PortSC {
+    pub fn clear_rw1s(self) -> Self {
+        self.with_data_port_enabled_disabled(false)
+            .with_data_port_reset(false)
+            .with_data_connect_status_change(false)
+            .with_data_port_enabled_disabled_change(false)
+            .with_data_warm_port_reset_change(false)
+            .with_data_over_current_change(false)
+            .with_data_port_reset_change(false)
+            .with_data_port_link_state_change(false)
+            .with_data_port_config_error_change(false)
+            .with_data_warm_port_reset(false)
+    }
+}
+
 #[derive(Debug)]
 pub struct PortRegisterSet<'a> {
     port_status_and_control: RegisterMap<'a, 1, PortSC, ReadWrite>,
@@ -646,7 +664,82 @@ bitfield_struct! {
     }
 }
 
-pub const PORT_REGISTER_SET_NUM: usize = 1;
+pub const MAX_PORT_REGISTER_SET_NUM: usize = 256;
+#[derive(Debug)]
+pub struct PortRegisters<'a> {
+    regs: [MaybeUninit<PortRegisterSet<'a>>; MAX_PORT_REGISTER_SET_NUM],
+    max_ports: u8,
+}
+
+impl<'a> PortRegisters<'a> {
+    /// # Safety
+    /// base is valid ptr. op base + port off
+    pub unsafe fn new(base: *mut u8, max_ports: u8) -> Self {
+        let mut arr: [MaybeUninit<PortRegisterSet>; MAX_PORT_REGISTER_SET_NUM] =
+            unsafe { MaybeUninit::zeroed().assume_init() };
+        for (idx, elem) in arr.iter_mut().enumerate().take(max_ports as usize) {
+            elem.write(unsafe { PortRegisterSet::new(base.add(0x10 * idx)) });
+        }
+
+        Self {
+            regs: arr,
+            max_ports,
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &PortRegisterSet<'a>> {
+        self.regs
+            .iter()
+            .take(self.max_ports as usize)
+            .map(|v| unsafe { v.assume_init_ref() })
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut PortRegisterSet<'a>> {
+        self.regs
+            .iter_mut()
+            .take(self.max_ports as usize)
+            .map(|v| unsafe { v.assume_init_mut() })
+    }
+}
+
+impl<'a> Index<usize> for PortRegisters<'a> {
+    type Output = PortRegisterSet<'a>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if index < self.max_ports as usize {
+            unsafe { self.regs.index(index).assume_init_ref() }
+        } else {
+            panic!("index out of range: {}", index)
+        }
+    }
+}
+
+impl<'a> IndexMut<usize> for PortRegisters<'a> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        if index < self.max_ports as usize {
+            unsafe { self.regs.index_mut(index).assume_init_mut() }
+        } else {
+            panic!("index out of range: {}", index)
+        }
+    }
+}
+
+impl<'a> IntoIterator for PortRegisters<'a> {
+    type Item = PortRegisterSet<'a>;
+
+    type IntoIter = Map<
+        Take<IntoIter<MaybeUninit<Self::Item>, MAX_PORT_REGISTER_SET_NUM>>,
+        fn(MaybeUninit<PortRegisterSet<'a>>) -> PortRegisterSet<'a>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.regs
+            .into_iter()
+            .take(self.max_ports as usize)
+            .map(|v| unsafe { v.assume_init() })
+    }
+}
+
 #[derive(Debug)]
 pub struct OperationalRegisters<'a> {
     usb_command: RegisterMap<'a, 1, UsbCommand, ReadWrite>,
@@ -656,7 +749,7 @@ pub struct OperationalRegisters<'a> {
     command_ring_control: RegisterMap<'a, 2, CommandRingControl, ReadWrite>,
     device_context_base_address_array_pointer: RegisterMap<'a, 2, Dcbaap, ReadWrite>,
     configure: RegisterMap<'a, 1, Configure, ReadWrite>,
-    port_register_set: [PortRegisterSet<'a>; PORT_REGISTER_SET_NUM],
+    port_register_set: PortRegisters<'a>,
 }
 
 impl<'a> OperationalRegisters<'a> {
@@ -671,15 +764,9 @@ impl<'a> OperationalRegisters<'a> {
 
     /// # Safety
     /// base is the beginning of the Operational Register space.
-    pub unsafe fn new(base: *mut u8) -> Self {
-        let mut arr: [MaybeUninit<PortRegisterSet>; PORT_REGISTER_SET_NUM] =
-            unsafe { MaybeUninit::zeroed().assume_init() };
-        for (idx, elem) in arr.iter_mut().enumerate() {
-            elem.write(PortRegisterSet::new(
-                base.add(Self::PORT_REGISTER_SET_OFFSET + (0x10 * idx)),
-            ));
-        }
-        let port_register_set = core::mem::transmute(arr);
+    pub unsafe fn new(base: *mut u8, max_ports: u8) -> Self {
+        let port_register_set =
+            PortRegisters::new(base.add(Self::PORT_REGISTER_SET_OFFSET), max_ports);
 
         Self {
             usb_command: RegisterMap::from_raw_mut(base.add(Self::USB_COMMAND_OFFSET).cast()),
@@ -745,9 +832,39 @@ impl<'a> OperationalRegisters<'a> {
     ) -> &mut RegisterMap<'a, 2, CommandRingControl, ReadWrite> {
         &mut self.command_ring_control
     }
+
+    pub fn port_registers_mut(&mut self) -> &mut PortRegisters<'a> {
+        &mut self.port_register_set
+    }
 }
 
 bitfield_struct! {
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Iman {
+        data: u32 => {
+            #[bits(1)]
+            interrupt_pending: bool,
+            #[bits(1)]
+            interrupt_enable: bool,
+            #[bits(30)]
+            _rsvdp: u32,
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
+    #[endian = "little"]
+    pub struct Imod {
+        data: u32 => {
+            #[bits(16)]
+            interrupt_modification_interval: u16,
+            #[bits(16)]
+            interrupt_moderation_counter: u16,
+        }
+    }
+
     #[repr(C)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoSegment, FromSegment)]
     #[endian = "little"]
@@ -789,8 +906,8 @@ bitfield_struct! {
 
 #[derive(Debug)]
 pub struct InterrupterRegisterSet<'a> {
-    _interrupt_management: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
-    _interrupt_moderation: RegisterMap<'a, 1, RsvdZU32, ReadWrite>,
+    interrupt_management: RegisterMap<'a, 1, Iman, ReadWrite>,
+    interrupt_moderation: RegisterMap<'a, 1, Imod, ReadWrite>,
     event_ring_segment_table_size: RegisterMap<'a, 1, Erstsz, ReadWrite>,
     event_ring_segment_table_base_address: RegisterMap<'a, 1, Erstba, ReadWrite>,
     event_ring_dequeue_pointer: RegisterMap<'a, 1, Erdp, ReadWrite>,
@@ -807,10 +924,10 @@ impl<'a> InterrupterRegisterSet<'a> {
     /// base is Runtime Base + 0x20 + (32 * idx)
     pub unsafe fn new(base: *mut u8) -> Self {
         Self {
-            _interrupt_management: RegisterMap::from_raw_mut(
+            interrupt_management: RegisterMap::from_raw_mut(
                 base.add(Self::INTERRUPT_MANAGEMENT_OFFSET).cast(),
             ),
-            _interrupt_moderation: RegisterMap::from_raw_mut(
+            interrupt_moderation: RegisterMap::from_raw_mut(
                 base.add(Self::INTERRUPT_MODERATION_OFFSET).cast(),
             ),
             event_ring_segment_table_size: RegisterMap::from_raw_mut(
@@ -853,6 +970,22 @@ impl<'a> InterrupterRegisterSet<'a> {
     pub fn event_ring_dequeue_pointer_mut(&mut self) -> &mut RegisterMap<'a, 1, Erdp, ReadWrite> {
         &mut self.event_ring_dequeue_pointer
     }
+
+    pub fn interrupt_management(&self) -> &RegisterMap<'a, 1, Iman, ReadWrite> {
+        &self.interrupt_management
+    }
+
+    pub fn interrupt_moderation(&self) -> &RegisterMap<'a, 1, Imod, ReadWrite> {
+        &self.interrupt_moderation
+    }
+
+    pub fn interrupt_management_mut(&mut self) -> &mut RegisterMap<'a, 1, Iman, ReadWrite> {
+        &mut self.interrupt_management
+    }
+
+    pub fn interrupt_moderation_mut(&mut self) -> &mut RegisterMap<'a, 1, Imod, ReadWrite> {
+        &mut self.interrupt_moderation
+    }
 }
 
 pub const INTERRUPTER_REGISTER_SET_NUM: usize = 1;
@@ -874,9 +1007,8 @@ impl<'a> RuntimeRegisters<'a> {
             unsafe { MaybeUninit::zeroed().assume_init() };
 
         for (idx, elem) in arr.iter_mut().enumerate() {
-            elem.write(InterrupterRegisterSet::new(
-                base.add(Self::INTERRUPTER_REGISTER_OFFSET + (32 * idx)),
-            ));
+            let addr = base.add(Self::INTERRUPTER_REGISTER_OFFSET + (32 * idx));
+            elem.write(InterrupterRegisterSet::new(addr));
         }
 
         let interrupter_register_sets = unsafe { core::mem::transmute(arr) };
@@ -899,6 +1031,10 @@ impl<'a> RuntimeRegisters<'a> {
         &mut self,
     ) -> &mut [InterrupterRegisterSet<'a>; INTERRUPTER_REGISTER_SET_NUM] {
         &mut self.interrupter_register_sets
+    }
+
+    pub fn get_primary_interrupter_mut(&mut self) -> &mut InterrupterRegisterSet<'a> {
+        self.interrupter_register_sets.index_mut(0)
     }
 }
 

@@ -57,6 +57,11 @@ where
                 let pos = PixelPosition::new(0, (row * FONT_HEIGHT) as u32);
                 self.writer
                     .write_string(pos, string, self.font_color, self.font_bg_color)?;
+
+                // clear last line
+                if row == ROW - 2 {
+                    rhs[0] = [0; COL];
+                }
             }
         }
 
@@ -90,6 +95,10 @@ where
     pub const fn col_num(&self) -> usize {
         COL
     }
+
+    pub fn is_last_col(&self) -> bool {
+        self.col_num() - 1 == self.cursor_pos.x as usize
+    }
 }
 
 impl<W, const ROW: usize, const COL: usize> Write for Console<W, ROW, COL>
@@ -100,6 +109,9 @@ where
         for c in s.chars() {
             if c == '\n' {
                 self.newline().map_err(|_| fmt::Error)?;
+            } else if self.is_last_col() {
+                self.newline().map_err(|_| fmt::Error)?;
+                self.write_char(c)?;
             } else if self.cursor_pos.x < COL as u32 {
                 let pos = PixelPosition::from(self.cursor_pos);
                 let font = font::get_font(c).ok_or(fmt::Error)?;
