@@ -1,6 +1,4 @@
 use super::endian::{EndianFrom, EndianInto};
-use common::debug;
-use core::mem;
 use macros::bitfield_struct;
 
 #[allow(dead_code)]
@@ -58,8 +56,13 @@ impl From<Link> for TrbRaw {
 }
 
 impl From<EnableSlotCommand> for TrbRaw {
-    fn from(_value: EnableSlotCommand) -> Self {
-        todo!()
+    fn from(value: EnableSlotCommand) -> Self {
+        Self::default()
+            .with_parameter0(value._rsvdz1)
+            .with_parameter1(value._rsvdz2)
+            .with_status(value._rsvdz3)
+            .with_remain(value.remain)
+            .with_control(value.control)
     }
 }
 
@@ -97,7 +100,7 @@ impl TrbType {
             4 => StatusStage,
             6 => Link,
             8 => NoOp,
-            10 => EnableSlotCommand,
+            9 => EnableSlotCommand,
             11 => AddressDeviceCommand,
             12 => ConfigureEndpoint,
             23 => NoOpCommand,
@@ -117,7 +120,7 @@ impl TrbType {
             StatusStage => 4,
             Link => 6,
             NoOp => 8,
-            EnableSlotCommand => 10,
+            EnableSlotCommand => 9,
             AddressDeviceCommand => 11,
             ConfigureEndpoint => 12,
             NoOpCommand => 23,
@@ -237,7 +240,7 @@ impl TryFrom<TrbRaw> for Link {
 
 bitfield_struct! {
     #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[endian = "little"]
     pub struct EnableSlotCommand {
         _rsvdz1: u32,
@@ -270,6 +273,37 @@ impl Type for EnableSlotCommand {
     }
 }
 
+impl Default for EnableSlotCommand {
+    fn default() -> Self {
+        Self {
+            _rsvdz1: Default::default(),
+            _rsvdz2: Default::default(),
+            _rsvdz3: Default::default(),
+            remain: Default::default(),
+            control: Default::default(),
+        }
+        .with_remain_trb_type(Self::TYPE)
+    }
+}
+
+impl TryFrom<TrbRaw> for EnableSlotCommand {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), TrbType::EnableSlotCommand) {
+            Ok(Self {
+                _rsvdz1: value.parameter0,
+                _rsvdz2: value.parameter1,
+                _rsvdz3: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
 bitfield_struct! {
     #[repr(C, packed)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -285,7 +319,7 @@ bitfield_struct! {
             #[bits(24)]
             command_completion_parameter: u32,
             #[bits(8)]
-            completion_code: u8,
+            completion_code: CommandConpletionCode,
         },
         remain: u16 => {
             #[bits(1)]
@@ -310,8 +344,12 @@ impl CommandCompletionEvent {
     /// # Safety
     /// issuer ptr must be valid
     pub unsafe fn issuer(self) -> Trb {
-        let ptr = self.get_params_ptr() as *const TrbRaw;
+        let ptr = (self.get_params_ptr() << 4) as *const TrbRaw;
         Trb::from(unsafe { *ptr })
+    }
+
+    pub fn is_success(self) -> bool {
+        self.get_status_completion_code().is_success()
     }
 }
 
@@ -338,6 +376,105 @@ impl TryFrom<TrbRaw> for CommandCompletionEvent {
     }
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CommandConpletionCode(u8);
+
+impl CommandConpletionCode {
+    pub const INVALID: u8 = 0;
+    pub const SUCCESS: u8 = 0;
+
+    pub fn is_success(self) -> bool {
+        self.0 == Self::SUCCESS
+    }
+}
+
+impl EndianFrom<u32> for CommandConpletionCode {
+    fn from_le(v: u32) -> Self {
+        Self::from_ne(u32::from_le(v))
+    }
+
+    fn from_be(v: u32) -> Self {
+        Self::from_ne(u32::from_be(v))
+    }
+
+    fn from_ne(v: u32) -> Self {
+        Self(v as u8)
+    }
+}
+
+impl EndianInto<u32> for CommandConpletionCode {
+    fn to_le(self) -> u32 {
+        self.to_ne().to_le()
+    }
+
+    fn to_be(self) -> u32 {
+        self.to_ne().to_be()
+    }
+
+    fn to_ne(self) -> u32 {
+        self.0 as u32
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[endian = "little"]
+    pub struct PortStatusChangeEvent {
+        parameter0: u32 => {
+            #[bits(24)]
+            _rsvdz: u32,
+            #[bits(8)]
+            port_id: u8,
+        },
+        parameter1: u32,
+        status: u32 => {
+            #[bits(24)]
+            _rsvdz: u32,
+            #[bits(8)]
+            completion_code: u8,
+        },
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(9)]
+            _rsvdz: u16,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16,
+    }
+}
+
+impl PortStatusChangeEvent {
+    pub const TYPE: TrbType = TrbType::PortStatusChangeEvent;
+}
+
+impl Type for PortStatusChangeEvent {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for PortStatusChangeEvent {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                parameter0: value.parameter0,
+                parameter1: value.parameter1,
+                status: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Trb {
     Normal,
@@ -346,13 +483,13 @@ pub enum Trb {
     StatusStage,
     Link(Link),
     NoOp,
-    EnableSlotCommand,
+    EnableSlotCommand(EnableSlotCommand),
     AddressDeviceCommand,
     ConfigureEndpoint,
     NoOpCommand,
     TransferEvent,
     CommandCompletionEvent(CommandCompletionEvent),
-    PortStatusChangeEvent,
+    PortStatusChangeEvent(PortStatusChangeEvent),
     Unknown(u8),
 }
 
@@ -366,7 +503,9 @@ impl From<TrbRaw> for Trb {
                 TrbType::StatusStage => todo!(),
                 TrbType::Link => Self::Link(Link::try_from(value).unwrap_unchecked()),
                 TrbType::NoOp => todo!(),
-                TrbType::EnableSlotCommand => todo!(),
+                TrbType::EnableSlotCommand => {
+                    Self::EnableSlotCommand(EnableSlotCommand::try_from(value).unwrap_unchecked())
+                }
                 TrbType::AddressDeviceCommand => todo!(),
                 TrbType::ConfigureEndpoint => todo!(),
                 TrbType::NoOpCommand => todo!(),
@@ -374,7 +513,9 @@ impl From<TrbRaw> for Trb {
                 TrbType::CommandConpletionEvent => Self::CommandCompletionEvent(
                     CommandCompletionEvent::try_from(value).unwrap_unchecked(),
                 ),
-                TrbType::PortStatusChangeEvent => todo!(),
+                TrbType::PortStatusChangeEvent => Self::PortStatusChangeEvent(
+                    PortStatusChangeEvent::try_from(value).unwrap_unchecked(),
+                ),
                 TrbType::Unknown(x) => Trb::Unknown(x),
             }
         }
@@ -390,13 +531,13 @@ impl Type for Trb {
             Trb::StatusStage => todo!(),
             Trb::Link(_) => Link::TYPE,
             Trb::NoOp => todo!(),
-            Trb::EnableSlotCommand => todo!(),
+            Trb::EnableSlotCommand(_) => EnableSlotCommand::TYPE,
             Trb::AddressDeviceCommand => todo!(),
             Trb::ConfigureEndpoint => todo!(),
             Trb::NoOpCommand => todo!(),
             Trb::TransferEvent => todo!(),
             Trb::CommandCompletionEvent(_) => CommandCompletionEvent::TYPE,
-            Trb::PortStatusChangeEvent => todo!(),
+            Trb::PortStatusChangeEvent(_) => PortStatusChangeEvent::TYPE,
             Trb::Unknown(x) => TrbType::Unknown(x),
         }
     }

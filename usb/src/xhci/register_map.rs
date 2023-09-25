@@ -1,5 +1,7 @@
-use super::endian::{Endian, EndianInto};
-use common::debug;
+use super::{
+    doorbell::DoorbellWrapper,
+    endian::{Endian, EndianInto},
+};
 use core::{
     array::IntoIter,
     iter::{Map, Take},
@@ -1055,9 +1057,10 @@ bitfield_struct! {
 }
 
 pub const MAX_DOORBELL_NUM: usize = 256;
+pub type DoorbellRegister<'a> = RegisterMap<'a, 1, Doorbell, ReadWrite>;
 #[derive(Debug)]
 pub struct DoorbellRegisters<'a> {
-    regs: [MaybeUninit<RegisterMap<'a, 1, Doorbell, ReadWrite>>; MAX_DOORBELL_NUM],
+    regs: [MaybeUninit<DoorbellRegister<'a>>; MAX_DOORBELL_NUM],
     len: usize,
 }
 
@@ -1067,7 +1070,7 @@ impl<'a> DoorbellRegisters<'a> {
     pub unsafe fn new(base: *mut u8, len: usize) -> Self {
         assert!(len <= MAX_DOORBELL_NUM);
 
-        let mut regs: [MaybeUninit<RegisterMap<'a, 1, Doorbell, ReadWrite>>; MAX_DOORBELL_NUM] =
+        let mut regs: [MaybeUninit<DoorbellRegister<'a>>; MAX_DOORBELL_NUM] =
             unsafe { MaybeUninit::uninit().assume_init() };
 
         for (i, elem) in regs.iter_mut().enumerate().take(len) {
@@ -1076,10 +1079,14 @@ impl<'a> DoorbellRegisters<'a> {
 
         Self { regs, len }
     }
+
+    pub fn host_controller_mut(&mut self) -> DoorbellWrapper<'_, 'a> {
+        self.index_mut(0).into()
+    }
 }
 
 impl<'a> Index<usize> for DoorbellRegisters<'a> {
-    type Output = RegisterMap<'a, 1, Doorbell, ReadWrite>;
+    type Output = DoorbellRegister<'a>;
 
     fn index(&self, index: usize) -> &Self::Output {
         if index < self.len {

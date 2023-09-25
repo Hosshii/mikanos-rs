@@ -21,7 +21,7 @@ impl<const SIZE: usize> TCRing<SIZE> {
 
         Self {
             ring_buf: RingBuffer::<_, SIZE>::zeroed(),
-            cycle_bit: false,
+            cycle_bit: true,
         }
     }
 
@@ -30,7 +30,7 @@ impl<const SIZE: usize> TCRing<SIZE> {
 
         Self {
             ring_buf: RingBuffer::<_, SIZE>::zeroed(),
-            cycle_bit: false,
+            cycle_bit: true,
         }
     }
 
@@ -121,9 +121,7 @@ impl<const SIZE: usize> EventRing<SIZE> {
             .event_ring_dequeue_pointer()
             .read()
             .with_data_ptr((next_ptr as u64) >> 4);
-
         irs.event_ring_dequeue_pointer_mut().write(erdp);
-        debug!("{:?}", unsafe { *ptr });
 
         Some(T::from(unsafe { *ptr }))
     }

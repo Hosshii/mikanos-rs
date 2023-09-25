@@ -1,12 +1,15 @@
+use crate::xhci::trb::EnableSlotCommand;
+
 use super::{
     context::DeviceContext,
+    doorbell::DoorbellWrapper,
     error::{Error, Result},
-    port::PortWrapper,
+    port::{PortConfigPhase, PortWrapper, PortsConfigPhase},
     register_map::{
-        CapabilityRegisters, Doorbell, DoorbellRegisters, OperationalRegisters, RuntimeRegisters,
+        CapabilityRegisters, DoorbellRegisters, OperationalRegisters, RuntimeRegisters,
     },
     ring::{EventRing, EventRingSegmentTableEntry, TCRing},
-    trb::{CommandCompletionEvent, Trb, TrbRaw},
+    trb::{CommandCompletionEvent, PortStatusChangeEvent, Trb, TrbRaw},
 };
 use common::{debug, info};
 use core::{
@@ -66,6 +69,10 @@ impl<
     pub fn primary_ring_mut(&mut self) -> &mut EventRing<SEG_SIZE> {
         self.event_ring_segments.index_mut(0)
     }
+
+    pub fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
+        self.command_ring.push(cmd)
+    }
 }
 
 pub struct Controller<
@@ -82,6 +89,7 @@ pub struct Controller<
     operational_registers: OperationalRegisters<'static>,
     runtime_registers: RuntimeRegisters<'static>,
     doorbell_registers: DoorbellRegisters<'static>,
+    ports_config_phase: PortsConfigPhase,
     // 配列のポインタが動かないようにしたい
     // 今の所move以外は大丈夫
     cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>>,
@@ -149,6 +157,7 @@ impl<
             operational_registers,
             runtime_registers,
             doorbell_registers,
+            ports_config_phase: PortsConfigPhase::default(),
             cx,
         }
     }
@@ -168,6 +177,7 @@ impl<
             operational_registers: self.operational_registers,
             runtime_registers: self.runtime_registers,
             doorbell_registers: self.doorbell_registers,
+            ports_config_phase: self.ports_config_phase,
             cx: self.cx,
         })
     }
@@ -256,7 +266,10 @@ impl<
             (cr_buf, cr_pcs)
         };
 
-        debug!("command ring ptr {:p}", cr_buf);
+        debug!(
+            "command ring ptr {:p}, command ring cycle bit {}",
+            cr_buf, cr_pcs
+        );
         let ptr = cr_buf as usize;
         let ptr_lo = (ptr as u32) >> 6;
         let ptr_hi = (ptr >> 32) as u32;
@@ -335,9 +348,8 @@ impl<
         let mut iman = primary.interrupt_management().read();
         iman.set_data_interrupt_pending(true);
         iman.set_data_interrupt_enable(true);
-        debug!("{:?}", iman);
+        debug!("iman: {:?}", iman);
         primary.interrupt_management_mut().write(iman);
-        debug!("{:?}", primary.interrupt_management().read());
 
         let mut cmd = self.operational_registers.usb_command().read();
         cmd.set_data_interrupter_enable(true);
@@ -375,6 +387,7 @@ impl<
             operational_registers: self.operational_registers,
             runtime_registers: self.runtime_registers,
             doorbell_registers: self.doorbell_registers,
+            ports_config_phase: self.ports_config_phase,
             cx: self.cx,
         }
     }
@@ -389,39 +402,24 @@ impl<
         const TAB_SIZE: usize,
     > Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
 {
-    pub fn port(&mut self, idx: u8) -> PortWrapper<'_, 'static> {
-        PortWrapper::new(
-            self.operational_registers
-                .port_registers_mut()
-                .index_mut(idx as usize),
+    pub fn port(&mut self, idx: u8) -> PortWrapper<'_, 'static, '_> {
+        port(
+            &mut self.operational_registers,
             idx,
+            self.ports_config_phase.phases_mut().index_mut(idx as usize),
         )
     }
 
-    pub fn ports_mut(&mut self) -> impl Iterator<Item = PortWrapper<'_, 'static>> {
-        self.operational_registers
-            .port_registers_mut()
-            .iter_mut()
-            .enumerate()
-            .map(|(idx, v)| PortWrapper::new(v, idx as u8))
+    pub fn ports_mut(&mut self) -> impl Iterator<Item = PortWrapper<'_, 'static, '_>> {
+        ports_mut(
+            &mut self.operational_registers,
+            &mut self.ports_config_phase,
+        )
     }
-
-    fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
-        let cmd: TrbRaw = cmd.into();
-        debug!("issue command: {:?}", cmd.get_remain_trb_type());
-        unsafe { self.cx.as_mut().get_unchecked_mut().command_ring.push(cmd) }
-    }
-
-    fn notify_command(&mut self) {
-        debug!("notify command");
-        let cmd = Doorbell::default();
-        self.doorbell_registers[0].write(cmd);
-    }
-
-    fn enable_slot(&mut self) {}
 
     pub fn process_primary_event(&mut self) -> Result<()> {
         let primary = self.runtime_registers.get_primary_interrupter_mut();
+
         let Some(event) = unsafe { self.cx.as_mut().get_unchecked_mut() }
             .primary_ring_mut()
             .pop::<Trb>(primary)
@@ -437,15 +435,15 @@ impl<
             Trb::StatusStage => todo!(),
             Trb::Link(_) => todo!(),
             Trb::NoOp => todo!(),
-            Trb::EnableSlotCommand => todo!(),
+            Trb::EnableSlotCommand(_) => todo!(),
             Trb::AddressDeviceCommand => todo!(),
             Trb::ConfigureEndpoint => todo!(),
             Trb::NoOpCommand => todo!(),
             Trb::TransferEvent => todo!(),
             Trb::CommandCompletionEvent(e) => self.process_command_completion_event(e),
-            Trb::PortStatusChangeEvent => todo!(),
+            Trb::PortStatusChangeEvent(e) => self.process_port_status_change_event(e),
             Trb::Unknown(_) => {
-                debug!("{:?}", event);
+                debug!("process event. unknown trb: {:?}", event);
                 Ok(())
             }
         }
@@ -453,9 +451,89 @@ impl<
 
     fn process_command_completion_event(&mut self, event: CommandCompletionEvent) -> Result<()> {
         debug!("process command completion event");
+        debug!(
+            "completion e: {:?}, {:?}",
+            event.get_status_completion_code(),
+            event
+        );
         let issuer = unsafe { event.issuer() };
         let slot_id = event.get_control_slot_id();
         debug!("slot_id: {}, issuer: {:?}", slot_id, issuer);
+
+        match issuer {
+            Trb::EnableSlotCommand(cmd) => {}
+            x => debug!("issuer {:?}", x),
+        }
         Ok(())
     }
+
+    fn process_port_status_change_event(&mut self, event: PortStatusChangeEvent) -> Result<()> {
+        let port_num = event.get_parameter0_port_id();
+        let mut port = port(
+            &mut self.operational_registers,
+            port_num,
+            self.ports_config_phase
+                .phases_mut()
+                .index_mut(port_num as usize),
+        );
+
+        match port.phase() {
+            PortConfigPhase::ResettingPort => {
+                // self.enable_slot(port);
+                unsafe {
+                    let cmd_ring = &mut self.cx.as_mut().get_unchecked_mut().command_ring;
+                    let mut hc_doorbell = self.doorbell_registers.host_controller_mut();
+                    enable_slot(&mut port, cmd_ring, &mut hc_doorbell)
+                }
+            }
+            x => {
+                debug!("process psce. port phase: {:?}", x);
+                Ok(())
+            }
+        }
+    }
+}
+
+fn port<'a, 'b, 'c>(
+    op: &'a mut OperationalRegisters<'b>,
+    idx: u8,
+    phase: &'c mut PortConfigPhase,
+) -> PortWrapper<'a, 'b, 'c> {
+    PortWrapper::new(op.port_registers_mut().index_mut(idx as usize), idx, phase)
+}
+
+fn ports_mut<'a, 'b, 'c>(
+    op: &'a mut OperationalRegisters<'b>,
+    phases: &'c mut PortsConfigPhase,
+) -> impl Iterator<Item = PortWrapper<'a, 'b, 'c>> {
+    op.port_registers_mut()
+        .iter_mut()
+        .enumerate()
+        .zip(phases.phases_mut())
+        .map(|((idx, v), phase)| PortWrapper::new(v, idx as u8, phase))
+}
+
+fn enable_slot<const N: usize>(
+    port: &mut PortWrapper,
+    cmd_ring: &mut TCRing<N>,
+    hc_doorbell: &mut DoorbellWrapper,
+) -> Result<()> {
+    debug!(
+        "enable slot: is enabled: {}. is_reset_changed: {}",
+        port.is_enabled(),
+        port.is_port_reset_changed()
+    );
+    if !port.is_enabled() {
+        return Err(Error::port_disabled());
+    }
+    if !port.is_connecded_status_changed() {
+        return Err(Error::port_reset_not_finished());
+    }
+
+    port.set_phase(PortConfigPhase::EnablingSlot);
+    let cmd = EnableSlotCommand::default();
+    cmd_ring.push(cmd);
+    hc_doorbell.notify_host_controller();
+
+    Ok(())
 }
