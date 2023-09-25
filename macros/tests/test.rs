@@ -26,8 +26,9 @@ const FLAGS_1: u8 =
     (FLAGS_1_FLAG12 << 6) | (FLAGS_1_FLAG11 << 4) | (FLAGS_1_FLAG10 << 2) | FLAGS_1_FLAG9;
 
 const ENUMS_FLAG: Flag = Flag::B;
-const ENUMS_REMAIN: u32 = 0b10101010101010101010101010101;
-const ENUNMS: u32 = (ENUMS_REMAIN << 3) | ENUMS_FLAG.to_ne();
+const ENUMS_REMAIN: u32 = 0b10101010101010101010101010;
+const ENUMS_FLAG2: Flag = Flag::C(7);
+const ENUNMS: u32 = (ENUMS_FLAG2.to_ne()) << 29 | (ENUMS_REMAIN << 3) | ENUMS_FLAG.to_ne();
 
 #[test]
 fn test() {
@@ -46,6 +47,7 @@ fn test() {
         .with_flags_1_flag11(FLAGS_1_FLAG11)
         .with_flags_1_flag12(FLAGS_1_FLAG12)
         .with_enums_flag(ENUMS_FLAG)
+        .with_enums_flag2(ENUMS_FLAG2)
         .with_enums_remain(ENUMS_REMAIN);
 
     assert_eq!(mem::size_of::<Hoge>(), 12);
@@ -78,9 +80,10 @@ fn check_flags(hoge: &Hoge) {
 }
 
 fn check_enum(hoge: &Hoge) {
+    assert_eq!(hoge.get_enums(), ENUNMS);
     assert_eq!(hoge.get_enums_flag(), ENUMS_FLAG);
     assert_eq!(hoge.get_enums_remain(), ENUMS_REMAIN);
-    assert_eq!(hoge.get_enums(), ENUNMS);
+    assert_eq!(hoge.get_enums_flag2(), ENUMS_FLAG2);
 }
 
 #[repr(u32)]
@@ -155,8 +158,10 @@ bitfield_struct! {
         enums: u32 => {
             #[bits(3)]
             flag: Flag,
-            #[bits(29)]
+            #[bits(26)]
             remain: u32,
+            #[bits(3)]
+            flag2: Flag,
         }
     }
 }

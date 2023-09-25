@@ -658,7 +658,13 @@ fn gen_field_method(
         MyType::Normal(MyNormalType {
             kind: MyNormalTypeKind::User(_),
             ..
-        }) => (quote!(<#ty>::from_ne(result)), quote! {val.to_ne()}),
+        }) => (
+            quote! {
+                let result = result.wrapping_shr(#offset);
+                <#ty>::from_ne(result)
+            },
+            quote! {val.to_ne()},
+        ),
         _ => (
             quote! {result.wrapping_shr(#offset) as #ty},
             quote! {val as #field_base_ty},
@@ -790,8 +796,10 @@ mod tests {
             bitfield_struct_impl(quote! {
                 struct A {
                     hoge: u16 => {
-                        #[bits(16)]
+                        #[bits(8)]
                         flag: Flag,
+                        #[bits(8)]
+                        flag2: Flag,
                     },
                 }
             })
@@ -815,20 +823,40 @@ mod tests {
                     }
                     pub fn get_hoge_flag(&self) -> Flag {
                         let tmp: u16 = <u16>::from(self.hoge);
-                        let mask: u16 = ((1 << 16u32) - 1) << 0u32;
+                        let mask: u16 = ((1 << 8u32) - 1) << 0u32;
                         let result: u16 = tmp & mask;
+                        let result = result.wrapping_shr(0u32);
                         <Flag>::from_ne(result)
                     }
                     pub fn set_hoge_flag(&mut self, val: Flag) {
                         let mut tmp: u16 = self.hoge;
-                        let clear_mask: u16 = !(((1 << 16u32) - 1) << 0u32);
+                        let clear_mask: u16 = !(((1 << 8u32) - 1) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val.to_ne() & ((1 << 16u32) - 1)) << 0u32;
+                        let value_mask: u16 = (val.to_ne() & ((1 << 8u32) - 1)) << 0u32;
                         tmp |= value_mask;
                         self.hoge = tmp.into();
                     }
                     pub fn with_hoge_flag(mut self, val: Flag) -> Self {
                         self.set_hoge_flag(val);
+                        self
+                    }
+                    pub fn get_hoge_flag2(&self) -> Flag {
+                        let tmp: u16 = <u16>::from(self.hoge);
+                        let mask: u16 = ((1 << 8u32) - 1) << 8u32;
+                        let result: u16 = tmp & mask;
+                        let result = result.wrapping_shr(8u32);
+                        <Flag>::from_ne(result)
+                    }
+                    pub fn set_hoge_flag2(&mut self, val: Flag) {
+                        let mut tmp: u16 = self.hoge;
+                        let clear_mask: u16 = !(((1 << 8u32) - 1) << 8u32);
+                        tmp &= clear_mask;
+                        let value_mask: u16 = (val.to_ne() & ((1 << 8u32) - 1)) << 8u32;
+                        tmp |= value_mask;
+                        self.hoge = tmp.into();
+                    }
+                    pub fn with_hoge_flag2(mut self, val: Flag) -> Self {
+                        self.set_hoge_flag2(val);
                         self
                     }
                 }
