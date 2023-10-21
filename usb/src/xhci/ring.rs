@@ -2,7 +2,7 @@ use super::{
     register_map::InterrupterRegisterSet,
     trb::{Link, TrbRaw},
 };
-use common::{debug, ring_buf::RingBuffer};
+use common::{debug, ring_buf::RingBuffer, Zeroed as _};
 use core::mem::MaybeUninit;
 use macros::bitfield_struct;
 

@@ -2,3 +2,6 @@
 
 pub mod log;
 pub mod ring_buf;
+pub mod zeroed;
+
+pub use zeroed::Zeroed;

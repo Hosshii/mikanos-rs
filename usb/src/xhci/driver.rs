@@ -11,7 +11,7 @@ use super::{
     ring::{EventRing, EventRingSegmentTableEntry, TCRing},
     trb::{CommandCompletionEvent, PortStatusChangeEvent, Trb, TrbRaw},
 };
-use common::{debug, info};
+use common::{debug, info, Zeroed};
 use core::{
     marker::{PhantomData, PhantomPinned},
     ops::IndexMut,

@@ -6,7 +6,7 @@ extern crate alloc;
 
 use core::{arch::asm, panic::PanicInfo, pin::pin};
 
-use common::{debug, info};
+use common::{debug, info, Zeroed as _};
 use kernel::{
     error::Error as LibError,
     graphic::{

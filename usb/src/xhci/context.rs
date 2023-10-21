@@ -1,8 +1,9 @@
+use common::Zeroed;
 use macros::bitfield_struct;
 
 bitfield_struct! {
     #[repr(C)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default,Zeroed)]
     #[endian = "little"]
     pub struct SlotContext {
         data: [u32; 8] => [
@@ -68,7 +69,7 @@ bitfield_struct! {
     }
 
     #[repr(C)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Zeroed)]
     #[endian = "little"]
     pub struct EndpointContxt {
         data: [u32; 8] => [
@@ -141,7 +142,7 @@ bitfield_struct! {
 const MAX_DEVICE_CONTEXT: usize = 31;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroed)]
 pub struct DeviceContext {
     slot_context: SlotContext,
     device_contexts: [EndpointContxt; MAX_DEVICE_CONTEXT],

@@ -4,6 +4,7 @@ mod bit_field;
 mod common;
 mod cstr16;
 mod derive_segment;
+mod derive_zeroed;
 
 #[proc_macro]
 pub fn cstr16(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -70,6 +71,13 @@ pub fn from_segment(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro_derive(IntoSegment)]
 pub fn into_segment(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     derive_segment::into_segment_impl(input.into())
+        .unwrap_or_else(Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_derive(Zeroed)]
+pub fn zeroed(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    derive_zeroed::zeroed_impl(input.into())
         .unwrap_or_else(Error::into_compile_error)
         .into()
 }

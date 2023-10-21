@@ -1,6 +1,8 @@
 use core::mem::MaybeUninit;
 use core::ops::{Index, IndexMut};
 
+use crate::Zeroed;
+
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,14 +31,6 @@ pub struct RingBuffer<T, const SIZE: usize> {
 }
 
 impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
-    pub fn zeroed() -> Self {
-        Self {
-            buf: unsafe { MaybeUninit::zeroed().assume_init() },
-            tail: 0,
-            head: 0,
-        }
-    }
-
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.tail == self.head
@@ -133,6 +127,16 @@ impl<T, const SIZE: usize> RingBuffer<T, SIZE> {
 
     pub fn tail(&self) -> usize {
         self.tail
+    }
+}
+
+impl<T, const SIZE: usize> Zeroed for RingBuffer<T, SIZE> {
+    fn zeroed() -> Self {
+        Self {
+            buf: unsafe { MaybeUninit::zeroed().assume_init() },
+            tail: 0,
+            head: 0,
+        }
     }
 }
 

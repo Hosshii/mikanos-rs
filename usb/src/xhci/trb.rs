@@ -1,4 +1,5 @@
 use super::endian::{EndianFrom, EndianInto};
+use common::Zeroed;
 use macros::bitfield_struct;
 
 #[allow(dead_code)]
@@ -43,8 +44,10 @@ impl TrbRaw {
             .with_control(control)
             .with_remain(remain)
     }
+}
 
-    pub fn zeroed() -> Self {
+impl Zeroed for TrbRaw {
+    fn zeroed() -> Self {
         Self::new(0, 0, 0, 0, 0)
     }
 }
