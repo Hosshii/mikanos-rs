@@ -30,6 +30,11 @@ sudo cp $KERNEL_FILE $MNT_POINT/kernel.elf
 sudo umount $MNT_POINT
 '''
 
+[tasks.make-image-release.env]
+MNT_POINT = "${DEV_DIR}/mnt"
+BOOTLOADER_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-uefi/release/bootloader.efi"
+KERNEL_FILE = "${CARGO_MAKE_WORKING_DIRECTORY}/target/x86_64-unknown-none-elf/release/kernel"
+
 [tasks.make-image-release]
 extend = "make-image"
 dependencies = [
