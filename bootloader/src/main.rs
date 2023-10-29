@@ -56,15 +56,44 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     writeln!(stdout, "hello world")?;
 
     let kernel_first_addr = load_kernel_file(image_handle, system_table)?;
-
     let kernel_arg = calc_kernel_arg(image_handle, system_table)?;
+
+    let stack_base = alloc_stack(system_table)?;
+
     exit_boot_service(image_handle, system_table)?;
 
     let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
-
     let kernel_main: KernelMain = unsafe { mem::transmute(entry_addr) };
 
-    kernel_main(kernel_arg);
+    init(kernel_main, kernel_arg, stack_base)
+}
+
+use arch::*;
+#[cfg(all(target_arch = "x86_64", target_pointer_width = "64"))]
+mod arch {
+    use super::*;
+
+    pub fn init(kernel_fn: KernelMain, arg: KernelArg, stack_base: u64) -> ! {
+        unsafe { asm!("mov rsp, {x}", x = in(reg) stack_base) }
+        kernel_fn(arg)
+    }
+
+    pub const STACK_SIZE: usize = 4 * 1024 * 1024;
+}
+
+fn alloc_stack(system_table: &SystemTable) -> Result<u64> {
+    let num_pages = (STACK_SIZE + 0xfff) / 0x1000;
+    let mut stack_base = 0;
+    (system_table.boot_services().allocate_pages)(
+        AllocateType::AllocateAnyPages,
+        MemoryType::EfiLoaderData,
+        num_pages,
+        &mut stack_base,
+    )
+    .to_result()
+    .map_err(|_| Error::Custom("failed to allocate pages"))?;
+
+    Ok(stack_base)
 }
 
 fn calc_kernel_arg(image_handle: Handle, system_table: &SystemTable) -> Result<KernelArg> {
@@ -182,7 +211,7 @@ fn load_kernel_file(image_handle: Handle, system_table: &mut SystemTable) -> Res
     info!("kernel_first_addr: {kernel_first_addr}, kernel_last_addr: {kernel_last_addr}");
 
     info!("allocate pages");
-    let num_pages = (kernel_last_addr - kernel_first_addr + 0xffff) / 0x10000;
+    let num_pages = (kernel_last_addr - kernel_first_addr + 0xfff) / 0x1000;
     let mut kernel_first_addr = kernel_first_addr as u64;
     (system_table.boot_services().allocate_pages)(
         AllocateType::AllocateAddress,

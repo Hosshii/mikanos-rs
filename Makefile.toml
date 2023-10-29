@@ -56,7 +56,7 @@ args = [
     "-hda", "${DISK_IMG}",
     "-device", "nec-usb-xhci,id=xhci",
     "-device", "usb-mouse", "-device", "usb-kbd",
-    "-monitor", "stdio",
+    "-monitor", "stdio"
 ]
 
 [tasks.run-qemu-dbg]
