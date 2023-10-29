@@ -1,7 +1,8 @@
-use crate::xhci::trb::EnableSlotCommand;
+use crate::xhci::trb::{AddressDeviceCommand, EnableSlotCommand};
 
 use super::{
     context::DeviceContext,
+    device::DeviceManager,
     doorbell::DoorbellWrapper,
     error::{Error, Result},
     port::{PortConfigPhase, PortWrapper, PortsConfigPhase},
@@ -28,6 +29,7 @@ const DEFAULT_COMMAND_RING_BUF_SIZE: usize = 16;
 const DEFAULT_EVENT_RING_SEGMENT_SIZE: usize = 16;
 const DEFAULT_EVENT_RING_SEGMENTS_NUM: usize = 1;
 const DEFAULT_EVENT_RING_SEGMENT_TABLE_SIZE: usize = DEFAULT_EVENT_RING_SEGMENTS_NUM;
+const DEFAULT_DEVICE_MANAGER_SIZE: usize = 16;
 
 pub struct Context<
     const DEV: usize = DEFAULT_NUM_DEVICE_CONTEXT,
@@ -35,11 +37,13 @@ pub struct Context<
     const SEG_SIZE: usize = DEFAULT_EVENT_RING_SEGMENT_SIZE,
     const SEG_NUM: usize = DEFAULT_EVENT_RING_SEGMENTS_NUM,
     const TAB_SIZE: usize = DEFAULT_EVENT_RING_SEGMENT_TABLE_SIZE,
+    const DEV_MNGR_SIZE: usize = DEFAULT_DEVICE_MANAGER_SIZE,
 > {
     device_context_ptrs: [*mut DeviceContext; DEV],
     command_ring: TCRing<CMD>,
     event_ring_segments: [EventRing<SEG_SIZE>; SEG_NUM],
     event_ring_segment_table: [EventRingSegmentTableEntry; TAB_SIZE],
+    device_manager: DeviceManager<DEV_MNGR_SIZE>,
     _phantom_pinned: PhantomPinned,
 }
 
@@ -49,29 +53,42 @@ impl<
         const SEG_SIZE: usize,
         const SEG_NUM: usize,
         const TAB_SIZE: usize,
-    > Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+        const DEV_MNGR_SIZE: usize,
+    > Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>
 {
-    pub fn zeroed() -> Self {
-        let device_context_ptrs = [ptr::null_mut(); DEV];
-        let command_ring = TCRing::new();
-        let event_ring_segments = [(); SEG_NUM].map(|_| EventRing::new());
-        let event_ring_segment_table = [EventRingSegmentTableEntry::zeroed(); TAB_SIZE];
-
-        Self {
-            device_context_ptrs,
-            command_ring,
-            event_ring_segments,
-            event_ring_segment_table,
-            _phantom_pinned: PhantomPinned,
-        }
-    }
-
     pub fn primary_ring_mut(&mut self) -> &mut EventRing<SEG_SIZE> {
         self.event_ring_segments.index_mut(0)
     }
 
     pub fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
         self.command_ring.push(cmd)
+    }
+}
+
+impl<
+        const DEV: usize,
+        const CMD: usize,
+        const SEG_SIZE: usize,
+        const SEG_NUM: usize,
+        const TAB_SIZE: usize,
+        const DEV_MNGR_SIZE: usize,
+    > Zeroed for Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>
+{
+    fn zeroed() -> Self {
+        let device_context_ptrs = [ptr::null_mut(); DEV];
+        let command_ring = TCRing::new();
+        let event_ring_segments = [(); SEG_NUM].map(|_| EventRing::new());
+        let event_ring_segment_table = [EventRingSegmentTableEntry::zeroed(); TAB_SIZE];
+        let device_manager = DeviceManager::new();
+
+        Self {
+            device_context_ptrs,
+            command_ring,
+            event_ring_segments,
+            event_ring_segment_table,
+            device_manager,
+            _phantom_pinned: PhantomPinned,
+        }
     }
 }
 
@@ -83,6 +100,7 @@ pub struct Controller<
     const SEG_SIZE: usize = DEFAULT_EVENT_RING_SEGMENT_SIZE,
     const SEG_NUM: usize = DEFAULT_EVENT_RING_SEGMENTS_NUM,
     const TAB_SIZE: usize = DEFAULT_EVENT_RING_SEGMENT_TABLE_SIZE,
+    const DEVICE_MANAGER_SIZE: usize = DEFAULT_DEVICE_MANAGER_SIZE,
 > {
     _phantomdata: PhantomData<State>,
     capability_registers: CapabilityRegisters<'static>,
@@ -92,7 +110,7 @@ pub struct Controller<
     ports_config_phase: PortsConfigPhase,
     // 配列のポインタが動かないようにしたい
     // 今の所move以外は大丈夫
-    cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>>,
+    cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEVICE_MANAGER_SIZE>>,
 }
 
 impl<
@@ -114,14 +132,15 @@ impl<
         const SEG_SIZE: usize,
         const SEG_NUM: usize,
         const TAB_SIZE: usize,
-    > Controller<'a, Uninitialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+        const DEV_MNGR_SIZE: usize,
+    > Controller<'a, Uninitialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>
 {
     /// # Safety
     /// bar must be correct address.
     /// And cust call at cost once.
     pub unsafe fn new(
         bar: u64,
-        cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>>,
+        cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>>,
     ) -> Self {
         debug!("bar: {:x?}", bar);
         let capability_registers = unsafe { CapabilityRegisters::new(bar as *const u8) };
@@ -164,7 +183,8 @@ impl<
 
     pub fn initialize(
         mut self,
-    ) -> Result<Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>> {
+    ) -> Result<Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>>
+    {
         self.reset();
         self.set_device_context()?;
         self.register_command_ring();
@@ -364,9 +384,12 @@ impl<
         const SEG_SIZE: usize,
         const SEG_NUM: usize,
         const TAB_SIZE: usize,
-    > Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+        const DEV_MNGR_SIZE: usize,
+    > Controller<'a, Initialized, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>
 {
-    pub fn run(mut self) -> Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE> {
+    pub fn run(
+        mut self,
+    ) -> Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE> {
         info!("run xhci");
         let mut cmd = self.operational_registers.usb_command().read();
         cmd.set_data_run_stop(true);
@@ -400,7 +423,8 @@ impl<
         const SEG_SIZE: usize,
         const SEG_NUM: usize,
         const TAB_SIZE: usize,
-    > Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
+        const DEV_MNGR_SIZE: usize,
+    > Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>
 {
     pub fn port(&mut self, idx: u8) -> PortWrapper<'_, 'static, '_> {
         port(
@@ -415,6 +439,10 @@ impl<
             &mut self.operational_registers,
             &mut self.ports_config_phase,
         )
+    }
+
+    pub fn processing_port_num(&self) -> Option<u8> {
+        self.ports_config_phase.processing_port()
     }
 
     pub fn process_primary_event(&mut self) -> Result<()> {
@@ -461,7 +489,56 @@ impl<
         debug!("slot_id: {}, issuer: {:?}", slot_id, issuer);
 
         match issuer {
-            Trb::EnableSlotCommand(cmd) => {}
+            Trb::EnableSlotCommand(_) => {
+                fn determin_max_packet_size(speed: u8) -> u16 {
+                    match speed {
+                        4 => 512,
+                        3 => 64,
+                        2 | 1 => 8,
+                        _ => panic!("unknown speed {}", speed),
+                    }
+                }
+                unsafe {
+                    let processing_port_num = self
+                        .processing_port_num()
+                        .ok_or(Error::empty_processing_port())?;
+
+                    // alloc device context.
+                    let cx = self.cx.as_mut().get_unchecked_mut();
+                    let device = cx.device_manager.alloc_device(slot_id)?;
+                    cx.device_context_ptrs[slot_id as usize] = device.as_mut_ptr();
+
+                    let transfer_ring = device.rings_mut().index_mut(0);
+                    let ring_ptr = transfer_ring as *mut _ as *mut u8;
+                    let cycle_bit = transfer_ring.cycle_bit();
+
+                    let input_context = device.input_context_mut();
+                    input_context.enable_endpoint(slot_id);
+                    input_context.enable_slot_context();
+
+                    let phase = &mut self.ports_config_phase.phase(processing_port_num);
+                    let mut port =
+                        port(&mut self.operational_registers, processing_port_num, phase);
+
+                    input_context.init_slot_cx(&port);
+
+                    input_context.init_ep0_endpoint(
+                        ring_ptr,
+                        cycle_bit,
+                        determin_max_packet_size(port.speed()),
+                    );
+                    debug!("port speed: {}", port.speed());
+
+                    port.set_phase(PortConfigPhase::AddressingDevice);
+                    let cmd =
+                        AddressDeviceCommand::new(input_context as *mut _ as *mut u8, slot_id);
+                    cx.command_ring.push(cmd);
+                    self.doorbell_registers
+                        .host_controller_mut()
+                        .notify_host_controller();
+                    debug!("address device command");
+                }
+            }
             x => debug!("issuer {:?}", x),
         }
         Ok(())
@@ -469,17 +546,47 @@ impl<
 
     fn process_port_status_change_event(&mut self, event: PortStatusChangeEvent) -> Result<()> {
         let port_num = event.get_parameter0_port_id();
-        let mut port = port(
-            &mut self.operational_registers,
-            port_num,
-            self.ports_config_phase
-                .phases_mut()
-                .index_mut(port_num as usize),
-        );
+        let phase = *self
+            .ports_config_phase
+            .phases_mut()
+            .index_mut(port_num as usize);
 
-        match port.phase() {
+        match phase {
             PortConfigPhase::ResettingPort => {
+                fn enable_slot<const N: usize>(
+                    port: &mut PortWrapper,
+                    cmd_ring: &mut TCRing<N>,
+                    hc_doorbell: &mut DoorbellWrapper,
+                ) -> Result<()> {
+                    debug!(
+                        "enable slot: is enabled: {}. is_reset_changed: {}",
+                        port.is_enabled(),
+                        port.is_port_reset_changed()
+                    );
+                    if !port.is_enabled() {
+                        return Err(Error::port_disabled());
+                    }
+                    if !port.is_connecded_status_changed() {
+                        return Err(Error::port_reset_not_finished());
+                    }
+
+                    port.set_phase(PortConfigPhase::EnablingSlot);
+                    let cmd = EnableSlotCommand::default();
+                    cmd_ring.push(cmd);
+                    hc_doorbell.notify_host_controller();
+
+                    Ok(())
+                }
+
                 // self.enable_slot(port);
+                self.ports_config_phase.set_processing_port(port_num)?;
+                let mut port = port(
+                    &mut self.operational_registers,
+                    port_num,
+                    self.ports_config_phase
+                        .phases_mut()
+                        .index_mut(port_num as usize),
+                );
                 unsafe {
                     let cmd_ring = &mut self.cx.as_mut().get_unchecked_mut().command_ring;
                     let mut hc_doorbell = self.doorbell_registers.host_controller_mut();
@@ -511,29 +618,4 @@ fn ports_mut<'a, 'b, 'c>(
         .enumerate()
         .zip(phases.phases_mut())
         .map(|((idx, v), phase)| PortWrapper::new(v, idx as u8, phase))
-}
-
-fn enable_slot<const N: usize>(
-    port: &mut PortWrapper,
-    cmd_ring: &mut TCRing<N>,
-    hc_doorbell: &mut DoorbellWrapper,
-) -> Result<()> {
-    debug!(
-        "enable slot: is enabled: {}. is_reset_changed: {}",
-        port.is_enabled(),
-        port.is_port_reset_changed()
-    );
-    if !port.is_enabled() {
-        return Err(Error::port_disabled());
-    }
-    if !port.is_connecded_status_changed() {
-        return Err(Error::port_reset_not_finished());
-    }
-
-    port.set_phase(PortConfigPhase::EnablingSlot);
-    let cmd = EnableSlotCommand::default();
-    cmd_ring.push(cmd);
-    hc_doorbell.notify_host_controller();
-
-    Ok(())
 }

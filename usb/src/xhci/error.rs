@@ -19,6 +19,18 @@ impl Error {
     pub fn port_reset_not_finished() -> Self {
         Self(ErrorKind::PortResetNotFinished)
     }
+
+    pub fn device_mnager_out_of_range() -> Self {
+        Self(ErrorKind::DeviceManagerOutOfRange)
+    }
+
+    pub fn already_port_processing() -> Self {
+        Self(ErrorKind::AlreadyPortProcessing)
+    }
+
+    pub fn empty_processing_port() -> Self {
+        Self(ErrorKind::EmptyProcessingPort)
+    }
 }
 
 #[derive(Debug)]
@@ -27,4 +39,7 @@ pub enum ErrorKind {
     PortNotNewlyConnected,
     PortDisabled,
     PortResetNotFinished,
+    DeviceManagerOutOfRange,
+    AlreadyPortProcessing,
+    EmptyProcessingPort,
 }

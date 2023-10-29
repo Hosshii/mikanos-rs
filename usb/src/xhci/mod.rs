@@ -1,4 +1,5 @@
 pub mod context;
+mod device;
 mod doorbell;
 pub mod driver;
 pub mod endian;

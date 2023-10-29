@@ -157,6 +157,34 @@ impl<T, const SIZE: usize> IndexMut<usize> for RingBuffer<T, SIZE> {
     }
 }
 
+impl<T: Clone, const SIZE: usize> Clone for RingBuffer<T, SIZE> {
+    fn clone(&self) -> Self {
+        let mut new = Self::zeroed();
+        new.head = self.head;
+        new.tail = self.tail;
+
+        for (i, elem) in new.buf.iter_mut().enumerate() {
+            if self.is_valid_buf_idx(i) {
+                *elem = MaybeUninit::new(self[i].clone());
+            }
+        }
+
+        new
+    }
+}
+
+impl<T: PartialEq, const SIZE: usize> PartialEq for RingBuffer<T, SIZE> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.iter().count() != other.iter().count() {
+            false
+        } else {
+            self.iter().zip(other.iter()).all(|(l, r)| l == r)
+        }
+    }
+}
+
+impl<T: Eq, const SIZE: usize> Eq for RingBuffer<T, SIZE> {}
+
 pub struct Iter<'a, T, const SIZE: usize> {
     buf: &'a RingBuffer<T, SIZE>,
     count: usize,

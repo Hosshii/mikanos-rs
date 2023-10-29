@@ -79,6 +79,13 @@ impl<'a, 'b, 'c> PortWrapper<'a, 'b, 'c> {
         *self.phase = phase;
     }
 
+    pub fn speed(&self) -> u8 {
+        self.set
+            .port_status_and_control()
+            .read()
+            .get_data_port_speed()
+    }
+
     fn reset(&mut self) -> Result<()> {
         debug!("reset port");
         self.set_phase(PortConfigPhase::ResettingPort);
@@ -116,6 +123,7 @@ pub const MAX_PORTS_NUM: usize = MAX_PORT_REGISTER_SET_NUM;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortsConfigPhase {
     status: [PortConfigPhase; MAX_PORTS_NUM],
+    processing_port: Option<u8>,
 }
 
 impl PortsConfigPhase {
@@ -130,12 +138,37 @@ impl PortsConfigPhase {
     pub fn phases_mut(&mut self) -> &mut [PortConfigPhase; MAX_PORTS_NUM] {
         &mut self.status
     }
+
+    pub fn set_processing_port(&mut self, idx: u8) -> Result<()> {
+        match self.processing_port {
+            Some(_) => Err(Error::already_port_processing()),
+            None => {
+                self.processing_port = Some(idx);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn clear_processing_port(&mut self) -> Result<()> {
+        match self.processing_port {
+            Some(_) => {
+                self.processing_port = None;
+                Ok(())
+            }
+            None => Err(Error::empty_processing_port()),
+        }
+    }
+
+    pub fn processing_port(&self) -> Option<u8> {
+        self.processing_port
+    }
 }
 
 impl Default for PortsConfigPhase {
     fn default() -> Self {
         Self {
             status: [PortConfigPhase::NotConnected; MAX_PORTS_NUM],
+            processing_port: None,
         }
     }
 }

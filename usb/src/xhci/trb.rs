@@ -15,7 +15,7 @@ bitfield_struct! {
     /// FFI types.
     /// fields are little endian.
     #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
     #[endian = "little"]
     pub struct TrbRaw {
         parameter0: u32,
@@ -37,18 +37,12 @@ bitfield_struct! {
 
 impl TrbRaw {
     pub fn new(parameter0: u32, parameter1: u32, status: u32, control: u16, remain: u16) -> Self {
-        Self::default()
+        Self::zeroed()
             .with_parameter0(parameter0)
             .with_parameter1(parameter1)
             .with_status(status)
             .with_control(control)
             .with_remain(remain)
-    }
-}
-
-impl Zeroed for TrbRaw {
-    fn zeroed() -> Self {
-        Self::new(0, 0, 0, 0, 0)
     }
 }
 
@@ -60,10 +54,21 @@ impl From<Link> for TrbRaw {
 
 impl From<EnableSlotCommand> for TrbRaw {
     fn from(value: EnableSlotCommand) -> Self {
-        Self::default()
+        Self::zeroed()
             .with_parameter0(value._rsvdz1)
             .with_parameter1(value._rsvdz2)
             .with_status(value._rsvdz3)
+            .with_remain(value.remain)
+            .with_control(value.control)
+    }
+}
+
+impl From<AddressDeviceCommand> for TrbRaw {
+    fn from(value: AddressDeviceCommand) -> Self {
+        Self::zeroed()
+            .with_parameter0(value.params as u32)
+            .with_parameter1((value.params >> 32) as u32)
+            .with_status(value._rsvdz)
             .with_remain(value.remain)
             .with_control(value.control)
     }
@@ -165,7 +170,7 @@ impl EndianFrom<u16> for TrbType {
 
 bitfield_struct! {
     #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
     #[endian = "little"]
     pub struct Link {
         ring_segment_pointer_lo: u32 => {
@@ -210,7 +215,7 @@ impl Link {
         let lo = raw_ptr as u32;
         let hi = (raw_ptr >> 32) as u32;
 
-        Self::default()
+        Self::zeroed()
             .with_remain_trb_type(Self::TYPE)
             .with_ring_segment_pointer_hi(hi)
             .with_ring_segment_pointer_lo_data(lo)
@@ -243,7 +248,7 @@ impl TryFrom<TrbRaw> for Link {
 
 bitfield_struct! {
     #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
     #[endian = "little"]
     pub struct EnableSlotCommand {
         _rsvdz1: u32,
@@ -309,7 +314,72 @@ impl TryFrom<TrbRaw> for EnableSlotCommand {
 
 bitfield_struct! {
     #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
+    #[endian = "little"]
+    pub struct AddressDeviceCommand {
+        params: u64 => {
+            #[bits(4)]
+            _rsvdz: u8,
+            #[bits(60)]
+            input_context_ptr: u64,
+        },
+        _rsvdz: u32,
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(8)]
+            _rsvdz: u16,
+            #[bits(1)]
+            block_set_address_request: bool,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(8)]
+            _rsvdz: u8,
+            #[bits(8)]
+            slot_id: u8,
+        }
+    }
+}
+
+impl AddressDeviceCommand {
+    pub const TYPE: TrbType = TrbType::AddressDeviceCommand;
+
+    pub fn new(input_cx_ptr: *mut u8, slot_id: u8) -> Self {
+        Self::zeroed()
+            .with_remain_trb_type(Self::TYPE)
+            .with_control_slot_id(slot_id)
+            .with_params_input_context_ptr((input_cx_ptr as u64) >> 4)
+    }
+}
+
+impl Type for AddressDeviceCommand {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for AddressDeviceCommand {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                params: ((value.parameter1 as u64) << 32) | value.parameter0 as u64,
+                _rsvdz: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
     #[endian = "little"]
     pub struct CommandCompletionEvent {
         params: u64 => {
@@ -422,7 +492,7 @@ impl EndianInto<u32> for CommandConpletionCode {
 
 bitfield_struct! {
     #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
     #[endian = "little"]
     pub struct PortStatusChangeEvent {
         parameter0: u32 => {

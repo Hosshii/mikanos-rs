@@ -8,7 +8,7 @@ use macros::bitfield_struct;
 
 /// Transfer or Communicate ring.
 #[repr(C, align(64))]
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TCRing<const SIZE: usize> {
     ring_buf: RingBuffer<TrbRaw, SIZE>,
     cycle_bit: bool,

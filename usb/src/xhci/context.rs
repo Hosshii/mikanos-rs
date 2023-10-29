@@ -1,5 +1,9 @@
+use core::ops::IndexMut;
+
 use common::Zeroed;
 use macros::bitfield_struct;
+
+use super::{port::PortWrapper, ring::TCRing};
 
 bitfield_struct! {
     #[repr(C)]
@@ -25,7 +29,7 @@ bitfield_struct! {
                 #[bits(16)]
                 max_exit_latency: u16,
                 #[bits(8)]
-                root_hub_number: u8,
+                root_hub_port_number: u8,
                 #[bits(8)]
                 number_of_ports: u8,
             },
@@ -160,5 +164,76 @@ impl DeviceContext {
 impl Default for DeviceContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+bitfield_struct! {
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Zeroed)]
+    #[endian = "little"]
+    pub struct InputControlContext {
+        drop_context_flags: u32,
+        add_context_flags: u32,
+        _rsvdz: [u32; 5],
+        data: u32 => {
+            #[bits(8)]
+            configuration_value: u8,
+            #[bits(8)]
+            interface_number: u8,
+            #[bits(8)]
+            altermate_setting: u8,
+            #[bits(8)]
+            _rsvdz: u8,
+        }
+    }
+}
+
+const EP_CONTEXT_NUM: usize = 32;
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq, Zeroed)]
+pub struct InputContext {
+    input_control_context: InputControlContext,
+    slot: SlotContext,
+    ep_contexts: [EndpointContxt; EP_CONTEXT_NUM],
+}
+
+impl InputContext {
+    pub fn enable_slot_context(&mut self) {
+        self.input_control_context.add_context_flags |= 1;
+    }
+
+    pub fn enable_endpoint(&mut self, idx: u8) {
+        self.input_control_context.add_context_flags |= 1 << idx;
+    }
+
+    pub fn init_slot_cx(&mut self, port: &PortWrapper) {
+        let slot = &mut self.slot;
+        slot.set_data_0_route_string(0);
+        slot.set_data_1_root_hub_port_number(port.number());
+        slot.set_data_0_context_entries(1);
+        slot.set_data_0_speed(port.speed());
+    }
+
+    pub fn init_ep0_endpoint(
+        &mut self,
+        ring_ptr: *mut u8,
+        cycle_state: bool,
+        max_packet_size: u16,
+    ) {
+        let ep0 = self.ep_contexts.index_mut(0);
+        ep0.set_data_1_ep_type(4); // control type
+        ep0.set_data_1_max_packet_size(max_packet_size);
+        ep0.set_data_1_max_burst_size(0);
+
+        ep0.set_data_2_tr_dequeue_pointer_lo((ring_ptr as usize >> 4) as u32);
+        ep0.set_data_3_tr_dequeue_pointer_hi((ring_ptr as usize >> 32) as u32);
+
+        ep0.set_data_2_dequeue_cycle_state(cycle_state);
+
+        ep0.set_data_0_interval(0);
+        ep0.set_data_0_max_primary_streams(0);
+        ep0.set_data_0_mult(0);
+        ep0.set_data_1_error_count(3);
     }
 }
