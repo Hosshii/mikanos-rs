@@ -55,6 +55,19 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     let stdout = system_table.stdout();
     writeln!(stdout, "hello world")?;
 
+    let kernel_first_addr = load_kernel_file(image_handle, system_table)?;
+
+    let kernel_arg = calc_kernel_arg(image_handle, system_table)?;
+    exit_boot_service(image_handle, system_table)?;
+
+    let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
+
+    let kernel_main: KernelMain = unsafe { mem::transmute(entry_addr) };
+
+    kernel_main(kernel_arg);
+}
+
+fn calc_kernel_arg(image_handle: Handle, system_table: &SystemTable) -> Result<KernelArg> {
     let gop = open_gop(system_table.boot_services(), image_handle)?;
     let mode = gop.mode();
     let info = mode.info();
@@ -106,19 +119,10 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
         )
     };
 
-    const MEMORY_MAP_SIZE: usize = 4096 * 4;
-    let mut memorymap_buf = [0u8; MEMORY_MAP_SIZE];
-    let mut memeory_map = MemoryMap {
-        buffer_size: MEMORY_MAP_SIZE,
-        buffer: &mut memorymap_buf as *mut [u8; MEMORY_MAP_SIZE] as *mut Void,
-        map_size: 0,
-        map_key: 0,
-        descriptor_size: 0,
-        descriptor_version: 0,
-    };
-    info!("get memory map");
-    get_memory_map(system_table, &mut memeory_map)?;
+    Ok(kernel_arg)
+}
 
+fn load_kernel_file(image_handle: Handle, system_table: &mut SystemTable) -> Result<u64> {
     info!("open root dir");
     let root_dir = open_root_dir(image_handle, system_table.boot_services())?;
 
@@ -152,8 +156,9 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
     .to_result()
     .map_err(|_| Error::Custom("cannot get info"))?;
 
-    let file_info = file_info_buffer.as_ptr() as *const FileInfo;
-    let mut kernel_file_size = unsafe { (*file_info).file_size } as Uintn;
+    let file_info = unsafe { &*(file_info_buffer.as_ptr() as *const FileInfo) };
+
+    let mut kernel_file_size = file_info.file_size as Uintn;
     let mut kernel_buffer = ptr::null_mut();
     info!("allocate pool. kernel_file_size: {kernel_file_size}");
     (system_table.boot_services().allocate_pool)(
@@ -202,25 +207,38 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
         .to_result()
         .map_err(|_| Error::Custom("failed to free pages"))?;
 
-    info!("exit boot services :{}", memeory_map.map_key);
+    Ok(kernel_first_addr)
+}
+
+fn exit_boot_service(image_handle: Handle, system_table: &SystemTable) -> Result<()> {
+    const MEMORY_MAP_SIZE: usize = 4096 * 4;
+    let mut memorymap_buf = [0u8; MEMORY_MAP_SIZE];
+    let mut memory_map = MemoryMap {
+        buffer_size: MEMORY_MAP_SIZE,
+        buffer: &mut memorymap_buf as *mut [u8; MEMORY_MAP_SIZE] as *mut Void,
+        map_size: 0,
+        map_key: 0,
+        descriptor_size: 0,
+        descriptor_version: 0,
+    };
+    info!("get memory map");
+    get_memory_map(system_table, &mut memory_map)?;
+
+    info!("exit boot services :{}", memory_map.map_key);
     let status =
-        (system_table.boot_services().exit_boot_services)(image_handle, memeory_map.map_key);
+        (system_table.boot_services().exit_boot_services)(image_handle, memory_map.map_key);
     // .map_err(|_| Error::Custom("failed to exit boot services"))?;
     if status.is_err() {
         info!("get memory map");
-        info!("exit boot services 2: {}", memeory_map.map_key);
-        get_memory_map(system_table, &mut memeory_map)?;
+        info!("exit boot services 2: {}", memory_map.map_key);
+        get_memory_map(system_table, &mut memory_map)?;
 
-        (system_table.boot_services().exit_boot_services)(image_handle, memeory_map.map_key)
+        (system_table.boot_services().exit_boot_services)(image_handle, memory_map.map_key)
             .to_result()
             .map_err(|_| Error::Custom("failed to exit boot services"))?;
     }
 
-    let entry_addr = unsafe { *((kernel_first_addr + 24) as *const u64) } as *const ();
-
-    let kernel_main: KernelMain = unsafe { mem::transmute(entry_addr) };
-
-    kernel_main(kernel_arg);
+    Ok(())
 }
 
 fn open_root_dir(image_handle: Handle, boot_services: &BootServices) -> Result<*mut FileProtocol> {
