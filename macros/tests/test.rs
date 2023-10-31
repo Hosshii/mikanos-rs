@@ -31,7 +31,7 @@ const ENUMS_FLAG2: Flag = Flag::C(7);
 const ENUNMS: u32 = (ENUMS_FLAG2.to_ne()) << 29 | (ENUMS_REMAIN << 3) | ENUMS_FLAG.to_ne();
 
 #[test]
-fn test() {
+fn test_hoge() {
     let hoge = Hoge::default()
         .with_flag123_flag1(FLAG123_FLAG1)
         .with_flag123_flag2(FLAG123_FLAG2)
@@ -84,6 +84,12 @@ fn check_enum(hoge: &Hoge) {
     assert_eq!(hoge.get_enums_flag(), ENUMS_FLAG);
     assert_eq!(hoge.get_enums_remain(), ENUMS_REMAIN);
     assert_eq!(hoge.get_enums_flag2(), ENUMS_FLAG2);
+}
+
+#[test]
+fn test_lshift_overflow() {
+    let mut fuga = Fuga::default();
+    fuga.set_ptrs_ptr_lo(0)
 }
 
 #[repr(u32)]
@@ -162,6 +168,14 @@ bitfield_struct! {
             remain: u32,
             #[bits(3)]
             flag2: Flag,
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    struct Fuga {
+        ptrs: u16 => {
+            #[bits(16)]
+            ptr_lo: u16,
         }
     }
 }
