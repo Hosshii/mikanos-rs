@@ -1,7 +1,9 @@
 use super::{
+    device::SlotId,
     doorbell::DoorbellWrapper,
     endian::{Endian, EndianInto},
 };
+use common::Zeroed;
 use core::{
     array::IntoIter,
     iter::{Map, Take},
@@ -1042,7 +1044,7 @@ impl<'a> RuntimeRegisters<'a> {
 
 bitfield_struct! {
     #[repr(C)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, IntoSegment, FromSegment)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroed, IntoSegment, FromSegment)]
     #[endian = "little"]
     pub struct Doorbell {
         data: u32 => {
@@ -1082,6 +1084,10 @@ impl<'a> DoorbellRegisters<'a> {
 
     pub fn host_controller_mut(&mut self) -> DoorbellWrapper<'_, 'a> {
         self.index_mut(0).into()
+    }
+
+    pub fn slot(&mut self, slot_id: SlotId) -> DoorbellWrapper<'_, 'a> {
+        self.index_mut(slot_id as usize).into()
     }
 }
 

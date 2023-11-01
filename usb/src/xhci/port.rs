@@ -1,3 +1,5 @@
+use core::ops::IndexMut;
+
 use common::debug;
 
 use crate::xhci::register_map::PortRegisterSet;
@@ -133,6 +135,10 @@ impl PortsConfigPhase {
 
     pub fn phase(&self, idx: u8) -> PortConfigPhase {
         self.status[idx as usize]
+    }
+
+    pub fn phase_mut(&mut self, idx: u8) -> &mut PortConfigPhase {
+        self.status.index_mut(idx as usize)
     }
 
     pub fn phases_mut(&mut self) -> &mut [PortConfigPhase; MAX_PORTS_NUM] {

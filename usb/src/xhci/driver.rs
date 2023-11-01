@@ -1,4 +1,7 @@
-use crate::xhci::trb::{AddressDeviceCommand, EnableSlotCommand};
+use crate::xhci::{
+    device::HCP_ENDPOINT_ID,
+    trb::{AddressDeviceCommand, EnableSlotCommand},
+};
 
 use super::{
     context::DeviceContext,
@@ -10,7 +13,7 @@ use super::{
         CapabilityRegisters, DoorbellRegisters, OperationalRegisters, RuntimeRegisters,
     },
     ring::{EventRing, EventRingSegmentTableEntry, TCRing},
-    trb::{CommandCompletionEvent, PortStatusChangeEvent, Trb, TrbRaw},
+    trb::{CommandCompletionEvent, PortStatusChangeEvent, Trb, TrbRaw, Type},
 };
 use common::{debug, info, Zeroed};
 use core::{
@@ -60,7 +63,7 @@ impl<
         self.event_ring_segments.index_mut(0)
     }
 
-    pub fn issue_command(&mut self, cmd: impl Into<TrbRaw>) {
+    pub fn issue_command(&mut self, cmd: impl Into<TrbRaw> + Type + Copy) {
         self.command_ring.push(cmd)
     }
 }
@@ -168,7 +171,10 @@ impl<
             .get_data_max_device_slots();
         let doorbell_registers =
             unsafe { DoorbellRegisters::new(db_base as *mut u8, db_len as usize) };
-        debug!("db_off: {:x?}, db_base: {:x?}", db_off, db_base);
+        debug!(
+            "db_off: {:x?}, db_base: {:x?}, db_len: {:x?}",
+            db_off, db_base, db_len
+        );
 
         Self {
             _phantomdata: PhantomData,
@@ -448,6 +454,13 @@ impl<
     pub fn process_primary_event(&mut self) -> Result<()> {
         let primary = self.runtime_registers.get_primary_interrupter_mut();
 
+        if let Some(d) = self.cx.device_manager.device(1) {
+            let desc = unsafe { d.read_descripter() };
+            if desc.usb_release != 0 {
+                debug!("{:?}", desc)
+            }
+        }
+
         let Some(event) = unsafe { self.cx.as_mut().get_unchecked_mut() }
             .primary_ring_mut()
             .pop::<Trb>(primary)
@@ -455,7 +468,7 @@ impl<
             return Ok(());
         };
 
-        debug!("process event");
+        info!("process event");
         match event {
             Trb::Normal => todo!(),
             Trb::SetupStage => todo!(),
@@ -464,7 +477,7 @@ impl<
             Trb::Link(_) => todo!(),
             Trb::NoOp => todo!(),
             Trb::EnableSlotCommand(_) => todo!(),
-            Trb::AddressDeviceCommand => todo!(),
+            Trb::AddressDeviceCommand(_) => todo!(),
             Trb::ConfigureEndpoint => todo!(),
             Trb::NoOpCommand => todo!(),
             Trb::TransferEvent => todo!(),
@@ -498,32 +511,34 @@ impl<
                         _ => panic!("unknown speed {}", speed),
                     }
                 }
-                unsafe {
-                    let processing_port_num = self
-                        .processing_port_num()
-                        .ok_or(Error::empty_processing_port())?;
+                let processing_port_num = self
+                    .processing_port_num()
+                    .ok_or(Error::empty_processing_port())?;
 
+                // may not move cx
+                unsafe {
                     // alloc device context.
                     let cx = self.cx.as_mut().get_unchecked_mut();
                     let device = cx.device_manager.alloc_device(slot_id)?;
                     cx.device_context_ptrs[slot_id as usize] = device.as_mut_ptr();
 
-                    let transfer_ring = device.rings_mut().index_mut(0);
-                    let ring_ptr = transfer_ring as *mut _ as *mut u8;
+                    let transfer_ring = device.dcp_ring_mut();
+                    let ring_ptr = transfer_ring.as_mut_ptr();
+                    info!("ring_ptr: {}", ring_ptr as u64);
                     let cycle_bit = transfer_ring.cycle_bit();
 
                     let input_context = device.input_context_mut();
                     input_context.enable_endpoint(slot_id);
                     input_context.enable_slot_context();
 
-                    let phase = &mut self.ports_config_phase.phase(processing_port_num);
+                    let phase = self.ports_config_phase.phase_mut(processing_port_num);
                     let mut port =
                         port(&mut self.operational_registers, processing_port_num, phase);
 
                     input_context.init_slot_cx(&port);
 
                     input_context.init_ep0_endpoint(
-                        ring_ptr,
+                        ring_ptr.cast(),
                         cycle_bit,
                         determin_max_packet_size(port.speed()),
                     );
@@ -539,12 +554,51 @@ impl<
                     debug!("address device command");
                 }
             }
+            Trb::AddressDeviceCommand(_) => {
+                let processing_port_num = self
+                    .processing_port_num()
+                    .ok_or(Error::empty_processing_port())?;
+
+                unsafe {
+                    let cx = self.cx.as_mut().get_unchecked_mut();
+
+                    let dev = cx
+                        .device_manager
+                        .device_mut(slot_id)
+                        .ok_or(Error::invalid_slot_id())?;
+                    let port_id = dev.port_num();
+                    if processing_port_num != port_id {
+                        return Err(Error::invalid_port_id());
+                    }
+
+                    let phase = self.ports_config_phase.phase(port_id);
+                    if phase != PortConfigPhase::AddressingDevice {
+                        return Err(Error::invalid_phase(
+                            PortConfigPhase::AddressingDevice,
+                            phase,
+                        ));
+                    }
+
+                    let port = port(
+                        &mut self.operational_registers,
+                        port_id,
+                        self.ports_config_phase
+                            .phases_mut()
+                            .index_mut(port_id as usize),
+                    );
+
+                    info!("doorbell. slot_id: {slot_id}, eid: {:?}", HCP_ENDPOINT_ID);
+                    let doorbell = self.doorbell_registers.slot(slot_id);
+                    dev.reqest_device_descripter(HCP_ENDPOINT_ID, doorbell);
+                }
+            }
             x => debug!("issuer {:?}", x),
         }
         Ok(())
     }
 
     fn process_port_status_change_event(&mut self, event: PortStatusChangeEvent) -> Result<()> {
+        debug!("process psce");
         let port_num = event.get_parameter0_port_id();
         let phase = *self
             .ports_config_phase

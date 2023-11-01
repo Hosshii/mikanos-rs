@@ -1,4 +1,9 @@
-use super::register_map::{Doorbell, DoorbellRegister};
+use common::{info, Zeroed};
+
+use super::{
+    device::EndpointID,
+    register_map::{Doorbell, DoorbellRegister},
+};
 
 pub struct DoorbellWrapper<'a, 'b> {
     reg: &'a mut DoorbellRegister<'b>,
@@ -10,7 +15,13 @@ impl<'a, 'b> DoorbellWrapper<'a, 'b> {
     }
 
     pub fn notify_host_controller(&mut self) {
-        self.reg.write(Doorbell::default())
+        self.reg.write(Doorbell::zeroed())
+    }
+
+    pub fn notify_endpoint(&mut self, endpoint_id: EndpointID) {
+        info!("dci: {}", endpoint_id.dci());
+        self.reg
+            .write(Doorbell::zeroed().with_data_db_target(endpoint_id.dci()))
     }
 }
 

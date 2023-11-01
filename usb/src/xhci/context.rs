@@ -3,7 +3,7 @@ use core::ops::IndexMut;
 use common::Zeroed;
 use macros::bitfield_struct;
 
-use super::{port::PortWrapper, ring::TCRing};
+use super::port::PortWrapper;
 
 bitfield_struct! {
     #[repr(C)]
@@ -148,8 +148,8 @@ const MAX_DEVICE_CONTEXT: usize = 31;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroed)]
 pub struct DeviceContext {
-    slot_context: SlotContext,
-    device_contexts: [EndpointContxt; MAX_DEVICE_CONTEXT],
+    pub slot_context: SlotContext,
+    pub device_contexts: [EndpointContxt; MAX_DEVICE_CONTEXT],
 }
 
 impl DeviceContext {
@@ -226,7 +226,7 @@ impl InputContext {
         ep0.set_data_1_max_packet_size(max_packet_size);
         ep0.set_data_1_max_burst_size(0);
 
-        ep0.set_data_2_tr_dequeue_pointer_lo((ring_ptr as usize >> 4) as u32);
+        ep0.set_data_2_tr_dequeue_pointer_lo((ring_ptr as u32) >> 4);
         ep0.set_data_3_tr_dequeue_pointer_hi((ring_ptr as usize >> 32) as u32);
 
         ep0.set_data_2_dequeue_cycle_state(cycle_state);

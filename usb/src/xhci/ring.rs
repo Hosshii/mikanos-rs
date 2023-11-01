@@ -1,6 +1,6 @@
 use super::{
     register_map::InterrupterRegisterSet,
-    trb::{Link, TrbRaw},
+    trb::{Link, TrbRaw, Type},
 };
 use common::{debug, ring_buf::RingBuffer, Zeroed as _};
 use core::mem::MaybeUninit;
@@ -34,9 +34,14 @@ impl<const SIZE: usize> TCRing<SIZE> {
         }
     }
 
-    pub fn push(&mut self, v: impl Into<TrbRaw>) {
+    pub fn push<T>(&mut self, v: T)
+    where
+        T: Into<TrbRaw> + Type + Copy,
+    {
+        let ty = v.get_type();
         let mut v: TrbRaw = v.into();
         v.set_remain_cycle_bit(self.cycle_bit);
+        v.set_remain_trb_type(ty);
         self.ring_buf.push_overwrite(v);
 
         if self.ring_buf.tail() % SIZE == SIZE - 1 {

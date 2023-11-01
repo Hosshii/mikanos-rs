@@ -46,6 +46,39 @@ impl TrbRaw {
     }
 }
 
+impl From<SetupStage> for TrbRaw {
+    fn from(value: SetupStage) -> Self {
+        Self::zeroed()
+            .with_parameter0(value.parameter0)
+            .with_parameter1(value.parameter1)
+            .with_status(value.status)
+            .with_remain(value.remain)
+            .with_control(value.control)
+    }
+}
+
+impl From<DataStage> for TrbRaw {
+    fn from(value: DataStage) -> Self {
+        Self::zeroed()
+            .with_parameter0(value.buf_ptr_lo)
+            .with_parameter1(value.buf_ptr_hi)
+            .with_status(value.status)
+            .with_remain(value.remain)
+            .with_control(value.control)
+    }
+}
+
+impl From<StatusStage> for TrbRaw {
+    fn from(value: StatusStage) -> Self {
+        Self::zeroed()
+            .with_parameter0(value._rsvdz1)
+            .with_parameter1(value._rsvdz2)
+            .with_status(value.status)
+            .with_remain(value.remain)
+            .with_control(value.control)
+    }
+}
+
 impl From<Link> for TrbRaw {
     fn from(_value: Link) -> Self {
         todo!()
@@ -165,6 +198,222 @@ impl EndianFrom<u16> for TrbType {
 
     fn from_ne(v: u16) -> Self {
         Self::from_u8(v as u8)
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
+    #[endian = "little"]
+    pub struct SetupStage {
+        parameter0: u32 => {
+            #[bits(8)]
+            bm_request_type: u8,
+            #[bits(8)]
+            b_ruquest: u8,
+            #[bits(16)]
+            w_value: u16,
+        },
+        parameter1: u32 => {
+            #[bits(16)]
+            w_index: u16,
+            #[bits(16)]
+            w_length: u16,
+        },
+        status: u32 => {
+            #[bits(17)]
+            trb_transfer_length: u32,
+            #[bits(5)]
+            _rsvdz: u8,
+            #[bits(10)]
+            interrupter_target: u16,
+        },
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(4)]
+            _rsvdz1: u16,
+            #[bits(1)]
+            interrupt_on_completion: bool,
+            #[bits(1)]
+            immediate_data: bool,
+            #[bits(3)]
+            _rsvdz2: u16,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(2)]
+            transfer_type: u8,
+            #[bits(14)]
+            _rsvdz: u16,
+        }
+    }
+}
+
+impl SetupStage {
+    pub const TYPE: TrbType = TrbType::SetupStage;
+}
+
+impl Type for SetupStage {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for SetupStage {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                parameter0: value.parameter0,
+                parameter1: value.parameter1,
+                status: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
+    #[endian = "little"]
+    pub struct DataStage {
+        buf_ptr_lo: u32,
+        buf_ptr_hi: u32,
+        status: u32 => {
+            #[bits(17)]
+            trb_transfer_length: u32,
+            #[bits(5)]
+            td_size: u8,
+            #[bits(10)]
+            interrupter_target: u16,
+        },
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(1)]
+            evaluate_next_trb: bool,
+            #[bits(1)]
+            interrupt_on_short_packet: bool,
+            #[bits(1)]
+            no_snoop: bool,
+            #[bits(1)]
+            chain_bit: bool,
+            #[bits(1)]
+            interrupt_on_completion: bool,
+            #[bits(1)]
+            immediate_data: bool,
+            #[bits(3)]
+            _rsvdz: u8,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(1)]
+            dir: bool,
+            #[bits(15)]
+            _rsvdz: u16,
+        }
+    }
+}
+
+impl DataStage {
+    pub const TYPE: TrbType = TrbType::DataStage;
+}
+
+impl Type for DataStage {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for DataStage {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                buf_ptr_lo: value.parameter0,
+                buf_ptr_hi: value.parameter1,
+                status: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
+    #[endian = "little"]
+    pub struct StatusStage {
+        _rsvdz1: u32,
+        _rsvdz2: u32,
+        status: u32 => {
+            #[bits(22)]
+            _rsvdz: u32,
+            #[bits(10)]
+            interrupt_target: u16,
+        },
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(1)]
+            evaluate_next_trb: bool,
+            #[bits(2)]
+            _rsvdz1: bool,
+            #[bits(1)]
+            chain_bit: bool,
+            #[bits(1)]
+            interrupt_on_completion: bool,
+            #[bits(4)]
+            _rsvdz2: u8,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(1)]
+            direction: bool,
+            #[bits(15)]
+            _rsvdz: u16,
+        }
+    }
+}
+
+impl StatusStage {
+    pub const TYPE: TrbType = TrbType::StatusStage;
+}
+
+impl Type for StatusStage {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for StatusStage {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                _rsvdz1: value.parameter0,
+                _rsvdz2: value.parameter1,
+                status: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
     }
 }
 
@@ -455,7 +704,7 @@ pub struct CommandConpletionCode(u8);
 
 impl CommandConpletionCode {
     pub const INVALID: u8 = 0;
-    pub const SUCCESS: u8 = 0;
+    pub const SUCCESS: u8 = 1;
 
     pub fn is_success(self) -> bool {
         self.0 == Self::SUCCESS
@@ -557,7 +806,7 @@ pub enum Trb {
     Link(Link),
     NoOp,
     EnableSlotCommand(EnableSlotCommand),
-    AddressDeviceCommand,
+    AddressDeviceCommand(AddressDeviceCommand),
     ConfigureEndpoint,
     NoOpCommand,
     TransferEvent,
@@ -579,7 +828,9 @@ impl From<TrbRaw> for Trb {
                 TrbType::EnableSlotCommand => {
                     Self::EnableSlotCommand(EnableSlotCommand::try_from(value).unwrap_unchecked())
                 }
-                TrbType::AddressDeviceCommand => todo!(),
+                TrbType::AddressDeviceCommand => Self::AddressDeviceCommand(
+                    AddressDeviceCommand::try_from(value).unwrap_unchecked(),
+                ),
                 TrbType::ConfigureEndpoint => todo!(),
                 TrbType::NoOpCommand => todo!(),
                 TrbType::TransferEvent => todo!(),
@@ -605,7 +856,7 @@ impl Type for Trb {
             Trb::Link(_) => Link::TYPE,
             Trb::NoOp => todo!(),
             Trb::EnableSlotCommand(_) => EnableSlotCommand::TYPE,
-            Trb::AddressDeviceCommand => todo!(),
+            Trb::AddressDeviceCommand(_) => AddressDeviceCommand::TYPE,
             Trb::ConfigureEndpoint => todo!(),
             Trb::NoOpCommand => todo!(),
             Trb::TransferEvent => todo!(),
@@ -616,6 +867,6 @@ impl Type for Trb {
     }
 }
 
-trait Type {
+pub trait Type {
     fn get_type(self) -> TrbType;
 }

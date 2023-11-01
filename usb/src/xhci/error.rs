@@ -1,3 +1,5 @@
+use super::port::PortConfigPhase;
+
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -31,6 +33,18 @@ impl Error {
     pub fn empty_processing_port() -> Self {
         Self(ErrorKind::EmptyProcessingPort)
     }
+
+    pub fn invalid_slot_id() -> Self {
+        Self(ErrorKind::InvalidSlotID)
+    }
+
+    pub fn invalid_port_id() -> Self {
+        Self(ErrorKind::InvalidPortID)
+    }
+
+    pub fn invalid_phase(expected: PortConfigPhase, actual: PortConfigPhase) -> Self {
+        Self(ErrorKind::InvalidPhase { expected, actual })
+    }
 }
 
 #[derive(Debug)]
@@ -42,4 +56,10 @@ pub enum ErrorKind {
     DeviceManagerOutOfRange,
     AlreadyPortProcessing,
     EmptyProcessingPort,
+    InvalidSlotID,
+    InvalidPortID,
+    InvalidPhase {
+        expected: PortConfigPhase,
+        actual: PortConfigPhase,
+    },
 }
