@@ -64,10 +64,10 @@ fn panic(info: &PanicInfo) -> ! {
 
 // entry point
 #[no_mangle]
-pub extern "sysv64" fn kernel_main(arg: KernelArg) -> ! {
+pub extern "sysv64" fn kernel_main(arg: &'static KernelArg) -> ! {
     logger::init_logger();
 
-    if let Err(e) = kernel_main_impl(arg) {
+    if let Err(e) = kernel_main_impl(*arg) {
         println!("{:?}", e)
     }
 

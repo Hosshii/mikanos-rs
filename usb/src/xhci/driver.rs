@@ -1,5 +1,6 @@
 use crate::xhci::{
     device::HCP_ENDPOINT_ID,
+    register_map::{Doorbell, DoorbellRegister},
     trb::{AddressDeviceCommand, EnableSlotCommand},
 };
 
@@ -170,7 +171,7 @@ impl<
             .read()
             .get_data_max_device_slots();
         let doorbell_registers =
-            unsafe { DoorbellRegisters::new(db_base as *mut u8, db_len as usize) };
+            unsafe { DoorbellRegisters::new(db_base as *mut Doorbell, db_len as usize) };
         debug!(
             "db_off: {:x?}, db_base: {:x?}, db_len: {:x?}",
             db_off, db_base, db_len

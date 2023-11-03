@@ -1069,14 +1069,14 @@ pub struct DoorbellRegisters<'a> {
 impl<'a> DoorbellRegisters<'a> {
     /// # Safety
     /// base is base of doorbell registers(cap base + dboff)
-    pub unsafe fn new(base: *mut u8, len: usize) -> Self {
+    pub unsafe fn new(base: *mut Doorbell, len: usize) -> Self {
         assert!(len <= MAX_DOORBELL_NUM);
 
         let mut regs: [MaybeUninit<DoorbellRegister<'a>>; MAX_DOORBELL_NUM] =
             unsafe { MaybeUninit::uninit().assume_init() };
 
         for (i, elem) in regs.iter_mut().enumerate().take(len) {
-            elem.write(RegisterMap::from_raw_mut(base.add(0x04 * i).cast()));
+            elem.write(RegisterMap::from_raw_mut(base.add(i)));
         }
 
         Self { regs, len }

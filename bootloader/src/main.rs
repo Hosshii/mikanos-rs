@@ -69,16 +69,31 @@ fn main_impl(image_handle: Handle, system_table: &mut SystemTable) -> Result<()>
 }
 
 use arch::*;
-#[cfg(all(target_arch = "x86_64", target_pointer_width = "64"))]
+#[cfg(target_arch = "x86_64")]
 mod arch {
     use super::*;
-
-    pub fn init(kernel_fn: KernelMain, arg: KernelArg, stack_base: u64) -> ! {
-        unsafe { asm!("mov rsp, {x}", x = in(reg) stack_base) }
-        kernel_fn(arg)
-    }
+    use core::mem::MaybeUninit;
 
     pub const STACK_SIZE: usize = 4 * 1024 * 1024;
+
+    pub fn init(kernel_fn: KernelMain, arg: KernelArg, stack_base: u64) -> ! {
+        unsafe {
+            ARG.write(arg);
+            FN.write(kernel_fn);
+        }
+
+        unsafe {
+            asm! {
+                "mov rsp, {x}",
+                x = in(reg) stack_base
+            }
+        }
+
+        unsafe { FN.assume_init()(ARG.assume_init_ref()) }
+    }
+
+    static mut ARG: MaybeUninit<KernelArg> = MaybeUninit::uninit();
+    static mut FN: MaybeUninit<KernelMain> = MaybeUninit::uninit();
 }
 
 fn alloc_stack(system_table: &SystemTable) -> Result<u64> {
