@@ -89,7 +89,27 @@ fn check_enum(hoge: &Hoge) {
 #[test]
 fn test_lshift_overflow() {
     let mut fuga = Fuga::default();
-    fuga.set_ptrs_ptr_lo(0)
+    fuga.set_ptrs_ptr_lo(0);
+}
+
+#[test]
+fn test_arr() {
+    bitfield_struct! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+        struct Arr {
+            p: [u32; 1] => [
+                {
+                    #[bits(32)]
+                    hoge: u32,
+                },
+            ]
+        }
+    }
+
+    let mut arr = Arr::default();
+    arr.set_p_0_hoge(0x1234);
+
+    assert_eq!(arr.get_p_0_hoge(), 0x1234);
 }
 
 #[repr(u32)]
@@ -178,4 +198,6 @@ bitfield_struct! {
             ptr_lo: u16,
         }
     }
+
+
 }

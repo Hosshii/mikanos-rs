@@ -683,7 +683,12 @@ fn gen_field_method(
                 let tmp: #field_base_ty = <#field_base_ty>::#getter_endian(#field_accessor);
 
                 // 1. まず、マスクを作成してbit_sizeの位置のビットをクリアする
-                let mask: #field_base_ty = (<#field_base_ty>::wrapping_shl(1, #bit_size) - 1) << #offset;
+                let mask: #field_base_ty =
+                (if #bit_size as #field_base_ty >= core::mem::size_of::<#field_base_ty>() as #field_base_ty * 8 {
+                    <#field_base_ty>::MAX
+                } else {
+                    <#field_base_ty>::wrapping_shl(1, #bit_size) - 1
+                }) << #offset;
                 let result: #field_base_ty = tmp & mask;
 
                 #cast_result
@@ -692,11 +697,22 @@ fn gen_field_method(
             pub fn #set_ident(&mut self, val: #ty) {
                 let mut tmp: #field_base_ty = #field_accessor;
                 // 1. まず、マスクを作成してbit_sizeの位置のビットをクリアする
-                let clear_mask: #field_base_ty = !((<#field_base_ty>::wrapping_shl(1, #bit_size) - 1) << #offset);
+                let clear_mask: #field_base_ty = !(
+                    (if #bit_size as #field_base_ty>= core::mem::size_of::<#field_base_ty>() as #field_base_ty * 8 {
+                        <#field_base_ty>::MAX
+                    } else {
+                        <#field_base_ty>::wrapping_shl(1, #bit_size) - 1
+                    }) << #offset);
                 tmp &= clear_mask;
 
                 // 2. 指定されたvalueをoffset位置にシフトし、既存のデータとORを取る
-                let value_mask: #field_base_ty = (#cast_val & (<#field_base_ty>::wrapping_shl(1, #bit_size) - 1)) << #offset;
+                let value_mask: #field_base_ty = (#cast_val &
+                    (if #bit_size as #field_base_ty>= core::mem::size_of::<#field_base_ty>() as #field_base_ty * 8 {
+                        <#field_base_ty>::MAX
+                    } else {
+                        <#field_base_ty>::wrapping_shl(1, #bit_size) - 1
+                    })
+                ) << #offset;
                 tmp |= value_mask;
 
                 #field_accessor = tmp.#setter_endian();
@@ -821,15 +837,27 @@ mod tests {
                     }
                     pub fn get_hoge_ptr(&self) -> u16 {
                         let tmp: u16 = <u16>::from(self.hoge);
-                        let mask: u16 = (<u16>::wrapping_shl(1, 16u32) - 1)<< 0u32;
+                        let mask: u16 = (if 16u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 16u32) - 1
+                        })<< 0u32;
                         let result: u16 = tmp & mask;
                         result.wrapping_shr(0u32) as u16
                     }
                     pub fn set_hoge_ptr(&mut self, val: u16) {
                         let mut tmp: u16 = self.hoge;
-                        let clear_mask: u16 = !((<u16>::wrapping_shl(1, 16u32) - 1) << 0u32);
+                        let clear_mask: u16 = !((if 16u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 16u32) - 1
+                        }) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val as u16 & (<u16>::wrapping_shl(1, 16u32) - 1)) << 0u32;
+                        let value_mask: u16 = (val as u16 & (if 16u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 16u32) - 1
+                        })) << 0u32;
                         tmp |= value_mask;
                         self.hoge = tmp.into();
                     }
@@ -873,16 +901,28 @@ mod tests {
                     }
                     pub fn get_hoge_flag(&self) -> Flag {
                         let tmp: u16 = <u16>::from(self.hoge);
-                        let mask: u16 = (<u16>::wrapping_shl(1, 8u32) - 1)<< 0u32;
+                        let mask: u16 = (if 8u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 8u32) - 1
+                        })<< 0u32;
                         let result: u16 = tmp & mask;
                         let result = result.wrapping_shr(0u32);
                         <Flag>::from_ne(result)
                     }
                     pub fn set_hoge_flag(&mut self, val: Flag) {
                         let mut tmp: u16 = self.hoge;
-                        let clear_mask: u16 = !((<u16>::wrapping_shl(1, 8u32) - 1) << 0u32);
+                        let clear_mask: u16 = !((if 8u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 8u32) - 1
+                        }) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val.to_ne() & (<u16>::wrapping_shl(1, 8u32) - 1)) << 0u32;
+                        let value_mask: u16 = (val.to_ne() & (if 8u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 8u32) - 1
+                        })) << 0u32;
                         tmp |= value_mask;
                         self.hoge = tmp.into();
                     }
@@ -892,16 +932,28 @@ mod tests {
                     }
                     pub fn get_hoge_flag2(&self) -> Flag {
                         let tmp: u16 = <u16>::from(self.hoge);
-                        let mask: u16 = (<u16>::wrapping_shl(1, 8u32) - 1)<< 8u32;
+                        let mask: u16 = (if 8u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 8u32) - 1
+                        })<< 8u32;
                         let result: u16 = tmp & mask;
                         let result = result.wrapping_shr(8u32);
                         <Flag>::from_ne(result)
                     }
                     pub fn set_hoge_flag2(&mut self, val: Flag) {
                         let mut tmp: u16 = self.hoge;
-                        let clear_mask: u16 = !((<u16>::wrapping_shl(1, 8u32) - 1) << 8u32);
+                        let clear_mask: u16 = !((if 8u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 8u32) - 1
+                        }) << 8u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val.to_ne() & (<u16>::wrapping_shl(1, 8u32) - 1)) << 8u32;
+                        let value_mask: u16 = (val.to_ne() & (if 8u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 8u32) - 1
+                        })) << 8u32;
                         tmp |= value_mask;
                         self.hoge = tmp.into();
                     }
@@ -1089,15 +1141,27 @@ mod tests {
                     }
                     pub fn get_flag123_0_flag(&self) -> u16 {
                         let tmp: u16 = <u16>::from_be(self.flag123[0usize]);
-                        let mask: u16 = (<u16>::wrapping_shl(1, 16u32) - 1)<< 0u32;
+                        let mask: u16 = (if 16u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 16u32) - 1
+                        })<< 0u32;
                         let result: u16 = tmp & mask;
                         result.wrapping_shr(0u32) as u16
                     }
                     pub fn set_flag123_0_flag(&mut self, val: u16) {
                         let mut tmp: u16 = self.flag123[0usize];
-                        let clear_mask: u16 = !((<u16>::wrapping_shl(1, 16u32) - 1) << 0u32);
+                        let clear_mask: u16 = !((if 16u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 16u32) - 1
+                        }) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val as u16 & (<u16>::wrapping_shl(1, 16u32) - 1)) << 0u32;
+                        let value_mask: u16 = (val as u16 & (if 16u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 16u32) - 1
+                        })) << 0u32;
                         tmp |= value_mask;
                         self.flag123[0usize] = tmp.to_be();
                     }
@@ -1156,15 +1220,27 @@ mod tests {
                     }
                     pub fn get_flag123_flag1(&self) -> bool {
                         let tmp: u16 = <u16>::from(self.flag123);
-                        let mask: u16 = (<u16>::wrapping_shl(1, 1u32) - 1)<< 0u32;
+                        let mask: u16 = (if 1u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 1u32) - 1
+                        })<< 0u32;
                         let result: u16 = tmp & mask;
                         result != 0
                     }
                     pub fn set_flag123_flag1(&mut self, val: bool) {
                         let mut tmp: u16 = self.flag123;
-                        let clear_mask: u16 = !((<u16>::wrapping_shl(1, 1u32) - 1) << 0u32);
+                        let clear_mask: u16 = !((if 1u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 1u32) - 1
+                        }) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val as u16 & (<u16>::wrapping_shl(1, 1u32) - 1)) << 0u32;
+                        let value_mask: u16 = (val as u16 & (if 1u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 1u32) - 1
+                        })) << 0u32;
                         tmp |= value_mask;
                         self.flag123 = tmp.into();
                     }
@@ -1174,15 +1250,27 @@ mod tests {
                     }
                     pub fn get_flag123_flag2(&self) -> u16 {
                         let tmp: u16 = <u16>::from(self.flag123);
-                        let mask: u16 = (<u16>::wrapping_shl(1, 15u32) - 1)<< 1u32;
+                        let mask: u16 = (if 15u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 15u32) - 1
+                        })<< 1u32;
                         let result: u16 = tmp & mask;
                         result.wrapping_shr(1u32) as u16
                     }
                     pub fn set_flag123_flag2(&mut self, val: u16) {
                         let mut tmp: u16 = self.flag123;
-                        let clear_mask: u16 = !((<u16>::wrapping_shl(1, 15u32) - 1) << 1u32);
+                        let clear_mask: u16 = !((if 15u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 15u32) - 1
+                        }) << 1u32);
                         tmp &= clear_mask;
-                        let value_mask: u16 = (val as u16 & (<u16>::wrapping_shl(1, 15u32) - 1)) << 1u32;
+                        let value_mask: u16 = (val as u16 & (if 15u32 as u16 >= core::mem::size_of::<u16>() as u16 * 8 {
+                             <u16>::MAX
+                        } else {
+                            <u16>::wrapping_shl(1, 15u32) - 1
+                        })) << 1u32;
                         tmp |= value_mask;
                         self.flag123 = tmp.into();
                     }
@@ -1202,15 +1290,27 @@ mod tests {
                     }
                     pub fn get_flags_0_flag3(&self) -> u8 {
                         let tmp: u8 = <u8>::from(self.flags[0usize]);
-                        let mask: u8 = (<u8>::wrapping_shl(1, 8u32) - 1)<< 0u32;
+                        let mask: u8 = (if 8u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 8u32) - 1
+                        })<< 0u32;
                         let result: u8 = tmp & mask;
                         result.wrapping_shr(0u32) as u8
                     }
                     pub fn set_flags_0_flag3(&mut self, val: u8) {
                         let mut tmp: u8 = self.flags[0usize];
-                        let clear_mask: u8 = !((<u8>::wrapping_shl(1, 8u32) - 1) << 0u32);
+                        let clear_mask: u8 = !((if 8u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 8u32) - 1
+                        }) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u8 = (val as u8 & (<u8>::wrapping_shl(1, 8u32) - 1)) << 0u32;
+                        let value_mask: u8 = (val as u8 & (if 8u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 8u32) - 1
+                        })) << 0u32;
                         tmp |= value_mask;
                         self.flags[0usize] = tmp.into();
                     }
@@ -1220,15 +1320,27 @@ mod tests {
                     }
                     pub fn get_flags_1_flag4(&self) -> u8 {
                         let tmp: u8 = <u8>::from(self.flags[1usize]);
-                        let mask: u8 = (<u8>::wrapping_shl(1, 2u32) - 1)<< 0u32;
+                        let mask: u8 = (if 2u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 2u32) - 1
+                        })<< 0u32;
                         let result: u8 = tmp & mask;
                         result.wrapping_shr(0u32) as u8
                     }
                     pub fn set_flags_1_flag4(&mut self, val: u8) {
                         let mut tmp: u8 = self.flags[1usize];
-                        let clear_mask: u8 = !((<u8>::wrapping_shl(1, 2u32) - 1) << 0u32);
+                        let clear_mask: u8 = !((if 2u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 2u32) - 1
+                        }) << 0u32);
                         tmp &= clear_mask;
-                        let value_mask: u8 = (val as u8 & (<u8>::wrapping_shl(1, 2u32) - 1)) << 0u32;
+                        let value_mask: u8 = (val as u8 & (if 2u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 2u32) - 1
+                        })) << 0u32;
                         tmp |= value_mask;
                         self.flags[1usize] = tmp.into();
                     }
@@ -1238,15 +1350,27 @@ mod tests {
                     }
                     pub fn get_flags_1_flag5(&self) -> u8 {
                         let tmp: u8 = <u8>::from(self.flags[1usize]);
-                        let mask: u8 = (<u8>::wrapping_shl(1, 6u32) - 1)<< 2u32;
+                        let mask: u8 = (if 6u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 6u32) - 1
+                        })<< 2u32;
                         let result: u8 = tmp & mask;
                         result.wrapping_shr(2u32) as u8
                     }
                     pub fn set_flags_1_flag5(&mut self, val: u8) {
                         let mut tmp: u8 = self.flags[1usize];
-                        let clear_mask: u8 = !((<u8>::wrapping_shl(1, 6u32) - 1) << 2u32);
+                        let clear_mask: u8 = !((if 6u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 6u32) - 1
+                        }) << 2u32);
                         tmp &= clear_mask;
-                        let value_mask: u8 = (val as u8 & (<u8>::wrapping_shl(1, 6u32) - 1)) << 2u32;
+                        let value_mask: u8 = (val as u8 & (if 6u32 as u8 >= core::mem::size_of::<u8>() as u8 * 8 {
+                             <u8>::MAX
+                        } else {
+                            <u8>::wrapping_shl(1, 6u32) - 1
+                        })) << 2u32;
                         tmp |= value_mask;
                         self.flags[1usize] = tmp.into();
                     }
