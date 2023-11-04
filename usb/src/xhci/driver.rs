@@ -1,13 +1,13 @@
 use crate::xhci::{
     device::HCP_ENDPOINT_ID,
-    register_map::{Doorbell, DoorbellRegister},
+    doorbell::HCDoorbell,
+    register_map::Doorbell,
     trb::{AddressDeviceCommand, EnableSlotCommand},
 };
 
 use super::{
     context::DeviceContext,
     device::DeviceManager,
-    doorbell::DoorbellWrapper,
     error::{Error, Result},
     port::{PortConfigPhase, PortWrapper, PortsConfigPhase},
     register_map::{
@@ -433,14 +433,6 @@ impl<
         const DEV_MNGR_SIZE: usize,
     > Controller<'a, Running, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEV_MNGR_SIZE>
 {
-    pub fn port(&mut self, idx: u8) -> PortWrapper<'_, 'static, '_> {
-        port(
-            &mut self.operational_registers,
-            idx,
-            self.ports_config_phase.phases_mut().index_mut(idx as usize),
-        )
-    }
-
     pub fn ports_mut(&mut self) -> impl Iterator<Item = PortWrapper<'_, 'static, '_>> {
         ports_mut(
             &mut self.operational_registers,
@@ -466,6 +458,14 @@ impl<
             .primary_ring_mut()
             .pop::<Trb>(primary)
         else {
+            if !self.ports_config_phase.is_resetting_port_exist() {
+                if let Some(port_num) = self.ports_config_phase.waiting_reset_port() {
+                    self.ports_config_phase.set_processing_port(port_num)?;
+                    let phase = self.ports_config_phase.phase_mut(port_num);
+                    let mut port = port(&mut self.operational_registers, port_num, phase);
+                    port.configure()?;
+                }
+            }
             return Ok(());
         };
 
@@ -502,6 +502,13 @@ impl<
         let slot_id = event.get_control_slot_id();
         debug!("slot_id: {}, issuer: {:?}", slot_id, issuer);
 
+        if !event.is_success() {
+            return Err(Error::command_not_success(
+                event.get_status_completion_code(),
+                issuer,
+            ));
+        }
+
         match issuer {
             Trb::EnableSlotCommand(_) => {
                 fn determin_max_packet_size(speed: u8) -> u16 {
@@ -529,7 +536,7 @@ impl<
                     let cycle_bit = transfer_ring.cycle_bit();
 
                     let input_context = device.input_context_mut();
-                    input_context.enable_endpoint(slot_id);
+                    input_context.enable_endpoint(1);
                     input_context.enable_slot_context();
 
                     let phase = self.ports_config_phase.phase_mut(processing_port_num);
@@ -555,7 +562,7 @@ impl<
                     debug!("address device command");
                 }
             }
-            Trb::AddressDeviceCommand(_) => {
+            Trb::AddressDeviceCommand(_cmd) => {
                 let processing_port_num = self
                     .processing_port_num()
                     .ok_or(Error::empty_processing_port())?;
@@ -572,6 +579,15 @@ impl<
                         return Err(Error::invalid_port_id());
                     }
 
+                    info!(
+                        "device address: {}",
+                        dev.device_context()
+                            .slot_context
+                            .get_data_3_usb_device_address()
+                    );
+
+                    self.ports_config_phase.clear_processing_port()?;
+
                     let phase = self.ports_config_phase.phase(port_id);
                     if phase != PortConfigPhase::AddressingDevice {
                         return Err(Error::invalid_phase(
@@ -579,6 +595,8 @@ impl<
                             phase,
                         ));
                     }
+                    self.ports_config_phase
+                        .set_phase(port_id, PortConfigPhase::InitializingDevice);
 
                     let port = port(
                         &mut self.operational_registers,
@@ -590,7 +608,7 @@ impl<
 
                     info!("doorbell. slot_id: {slot_id}, eid: {:?}", HCP_ENDPOINT_ID);
                     let doorbell = self.doorbell_registers.slot(slot_id);
-                    dev.reqest_device_descripter(HCP_ENDPOINT_ID, doorbell);
+                    dev.request_device_descripter(HCP_ENDPOINT_ID, doorbell);
                 }
             }
             x => debug!("issuer {:?}", x),
@@ -611,7 +629,7 @@ impl<
                 fn enable_slot<const N: usize>(
                     port: &mut PortWrapper,
                     cmd_ring: &mut TCRing<N>,
-                    hc_doorbell: &mut DoorbellWrapper,
+                    hc_doorbell: &mut HCDoorbell,
                 ) -> Result<()> {
                     debug!(
                         "enable slot: is enabled: {}. is_reset_changed: {}",
@@ -621,7 +639,7 @@ impl<
                     if !port.is_enabled() {
                         return Err(Error::port_disabled());
                     }
-                    if !port.is_connecded_status_changed() {
+                    if !port.is_connected_status_changed() {
                         return Err(Error::port_reset_not_finished());
                     }
 
@@ -634,7 +652,6 @@ impl<
                 }
 
                 // self.enable_slot(port);
-                self.ports_config_phase.set_processing_port(port_num)?;
                 let mut port = port(
                     &mut self.operational_registers,
                     port_num,
@@ -661,7 +678,11 @@ fn port<'a, 'b, 'c>(
     idx: u8,
     phase: &'c mut PortConfigPhase,
 ) -> PortWrapper<'a, 'b, 'c> {
-    PortWrapper::new(op.port_registers_mut().index_mut(idx as usize), idx, phase)
+    PortWrapper::new(
+        op.port_registers_mut().index_mut((idx - 1) as usize),
+        idx,
+        phase,
+    )
 }
 
 fn ports_mut<'a, 'b, 'c>(
@@ -671,6 +692,6 @@ fn ports_mut<'a, 'b, 'c>(
     op.port_registers_mut()
         .iter_mut()
         .enumerate()
-        .zip(phases.phases_mut())
-        .map(|((idx, v), phase)| PortWrapper::new(v, idx as u8, phase))
+        .zip(phases.phases_mut().iter_mut().skip(1))
+        .map(|((idx, v), phase)| PortWrapper::new(v, idx as u8 + 1, phase))
 }

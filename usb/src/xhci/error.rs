@@ -1,4 +1,7 @@
-use super::port::PortConfigPhase;
+use super::{
+    port::PortConfigPhase,
+    trb::{CommandConpletionCode, Trb},
+};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -45,6 +48,10 @@ impl Error {
     pub fn invalid_phase(expected: PortConfigPhase, actual: PortConfigPhase) -> Self {
         Self(ErrorKind::InvalidPhase { expected, actual })
     }
+
+    pub fn command_not_success(code: CommandConpletionCode, issuer: Trb) -> Self {
+        Self(ErrorKind::CommandNotSuccess { code, issuer })
+    }
 }
 
 #[derive(Debug)]
@@ -61,5 +68,9 @@ pub enum ErrorKind {
     InvalidPhase {
         expected: PortConfigPhase,
         actual: PortConfigPhase,
+    },
+    CommandNotSuccess {
+        code: CommandConpletionCode,
+        issuer: Trb,
     },
 }

@@ -20,6 +20,7 @@ use kernel::{
 use usb::xhci::{
     driver::{Context, Controller},
     error::Error as UsbError,
+    port::PortConfigPhase,
 };
 
 const MOUSE_CURSOR_HEIGHT: usize = 24;
@@ -160,10 +161,14 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     info!("run xhci");
     let mut xhci = xhci.run();
 
-    for (idx, mut port) in xhci.ports_mut().enumerate() {
-        // debug!("port {}. is connected = {}", idx, port.is_connected());
+    for mut port in xhci.ports_mut() {
+        debug!(
+            "port {}. is connected = {}",
+            port.number(),
+            port.is_connected()
+        );
         if port.is_connected() {
-            port.configure()?;
+            port.set_phase(PortConfigPhase::WaitingAddressed)
         }
     }
 

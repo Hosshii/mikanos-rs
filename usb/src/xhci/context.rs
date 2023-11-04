@@ -145,26 +145,11 @@ bitfield_struct! {
 
 const MAX_DEVICE_CONTEXT: usize = 31;
 
-#[repr(C)]
+#[repr(C, align(64))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroed)]
 pub struct DeviceContext {
     pub slot_context: SlotContext,
     pub device_contexts: [EndpointContxt; MAX_DEVICE_CONTEXT],
-}
-
-impl DeviceContext {
-    pub fn new() -> Self {
-        Self {
-            slot_context: SlotContext::default(),
-            device_contexts: [EndpointContxt::default(); MAX_DEVICE_CONTEXT],
-        }
-    }
-}
-
-impl Default for DeviceContext {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 bitfield_struct! {
@@ -190,7 +175,7 @@ bitfield_struct! {
 
 const EP_CONTEXT_NUM: usize = 32;
 
-#[repr(C)]
+#[repr(C, align(64))]
 #[derive(Debug, Clone, PartialEq, Eq, Zeroed)]
 pub struct InputContext {
     input_control_context: InputControlContext,

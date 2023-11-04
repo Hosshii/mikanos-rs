@@ -1,6 +1,6 @@
 use super::{
     device::SlotId,
-    doorbell::DoorbellWrapper,
+    doorbell::{DCDoorbell, HCDoorbell},
     endian::{Endian, EndianInto},
 };
 use common::Zeroed;
@@ -1082,11 +1082,11 @@ impl<'a> DoorbellRegisters<'a> {
         Self { regs, len }
     }
 
-    pub fn host_controller_mut(&mut self) -> DoorbellWrapper<'_, 'a> {
+    pub fn host_controller_mut(&mut self) -> HCDoorbell<'_, 'a> {
         self.index_mut(0).into()
     }
 
-    pub fn slot(&mut self, slot_id: SlotId) -> DoorbellWrapper<'_, 'a> {
+    pub fn slot(&mut self, slot_id: SlotId) -> DCDoorbell<'_, 'a> {
         self.index_mut(slot_id as usize).into()
     }
 }

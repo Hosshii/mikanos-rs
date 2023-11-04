@@ -46,7 +46,7 @@ impl<'a, 'b, 'c> PortWrapper<'a, 'b, 'c> {
             .get_data_current_connect_status()
     }
 
-    pub fn is_connecded_status_changed(&self) -> bool {
+    pub fn is_connected_status_changed(&self) -> bool {
         self.set
             .port_status_and_control()
             .read()
@@ -92,7 +92,7 @@ impl<'a, 'b, 'c> PortWrapper<'a, 'b, 'c> {
         debug!("reset port");
         self.set_phase(PortConfigPhase::ResettingPort);
 
-        if !self.is_connected() || !self.is_connecded_status_changed() {
+        if !self.is_connected() || !self.is_connected_status_changed() {
             return Err(Error::port_not_newly_connected());
         }
 
@@ -110,7 +110,7 @@ impl<'a, 'b, 'c> PortWrapper<'a, 'b, 'c> {
     }
 
     pub fn configure(&mut self) -> Result<()> {
-        debug!("configure port");
+        debug!("configure port: {}", self.number());
         self.reset()?;
         Ok(())
     }
@@ -124,6 +124,7 @@ pub const MAX_PORTS_NUM: usize = MAX_PORT_REGISTER_SET_NUM;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortsConfigPhase {
+    // index is port number: 1以上
     status: [PortConfigPhase; MAX_PORTS_NUM],
     processing_port: Option<u8>,
 }
@@ -167,6 +168,23 @@ impl PortsConfigPhase {
 
     pub fn processing_port(&self) -> Option<u8> {
         self.processing_port
+    }
+
+    pub fn is_resetting_port_exist(&self) -> bool {
+        use PortConfigPhase::*;
+        for status in self.status {
+            if matches!(status, ResettingPort | EnablingSlot | AddressingDevice) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn waiting_reset_port(&self) -> Option<u8> {
+        self.status
+            .iter()
+            .position(|v| v == &PortConfigPhase::WaitingAddressed)
+            .map(|v| v as u8)
     }
 }
 

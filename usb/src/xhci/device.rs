@@ -8,7 +8,7 @@ use common::{info, Zeroed};
 use super::{
     context::{DeviceContext, InputContext},
     descripter::DeviceDescripter,
-    doorbell::DoorbellWrapper,
+    doorbell::DCDoorbell,
     error::{Error, Result},
     ring::TCRing,
     trb::{DataStage, SetupStage, StatusStage},
@@ -45,6 +45,10 @@ impl<const RING_SIZE: usize, const RING_NUM: usize> Device<RING_SIZE, RING_NUM> 
         &mut self.context as *mut DeviceContext
     }
 
+    pub fn device_context(&self) -> &DeviceContext {
+        &self.context
+    }
+
     pub unsafe fn read_descripter(&self) -> &DeviceDescripter {
         unsafe { self.descrpiter.assume_init_ref() }
     }
@@ -70,10 +74,10 @@ impl<const RING_SIZE: usize, const RING_NUM: usize> Device<RING_SIZE, RING_NUM> 
         self.transfer_rings.index_mut(0)
     }
 
-    pub fn reqest_device_descripter(
+    pub fn request_device_descripter(
         &mut self,
         endponint_id: EndpointID,
-        mut doorbell: DoorbellWrapper,
+        mut doorbell: DCDoorbell,
     ) {
         let buf_len = core::mem::size_of::<DeviceDescripter>();
         let setup = SetupStage::zeroed()
@@ -84,7 +88,8 @@ impl<const RING_SIZE: usize, const RING_NUM: usize> Device<RING_SIZE, RING_NUM> 
             .with_parameter1_w_length(buf_len as u16)
             .with_status_trb_transfer_length(8)
             .with_control_transfer_type(3)
-            .with_remain_interrupt_on_completion(true);
+            .with_remain_interrupt_on_completion(true)
+            .with_remain_immediate_data(true);
 
         let buf_ptr = self.descrpiter.as_mut_ptr();
         let data = DataStage::zeroed()
@@ -105,7 +110,9 @@ impl<const RING_SIZE: usize, const RING_NUM: usize> Device<RING_SIZE, RING_NUM> 
             transfer_ring.as_mut_ptr() as usize
         );
         transfer_ring.push(setup);
+        doorbell.notify_endpoint(HCP_ENDPOINT_ID);
         transfer_ring.push(data);
+        doorbell.notify_endpoint(HCP_ENDPOINT_ID);
         transfer_ring.push(status);
         doorbell.notify_endpoint(HCP_ENDPOINT_ID);
     }

@@ -201,3 +201,79 @@ bitfield_struct! {
 
 
 }
+
+#[test]
+fn test_setup_stage() {
+    bitfield_struct! {
+        #[repr(C, packed)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+        #[endian = "little"]
+        pub struct SetupStage {
+            parameter0: u32 => {
+                #[bits(8)]
+                bm_request_type: u8,
+                #[bits(8)]
+                b_ruquest: u8,
+                #[bits(16)]
+                w_value: u16,
+            },
+            parameter1: u32 => {
+                #[bits(16)]
+                w_index: u16,
+                #[bits(16)]
+                w_length: u16,
+            },
+            status: u32 => {
+                #[bits(17)]
+                trb_transfer_length: u32,
+                #[bits(5)]
+                _rsvdz: u8,
+                #[bits(10)]
+                interrupter_target: u16,
+            },
+            remain: u16 => {
+                #[bits(1)]
+                cycle_bit: bool,
+                #[bits(4)]
+                _rsvdz1: u16,
+                #[bits(1)]
+                interrupt_on_completion: bool,
+                #[bits(1)]
+                immediate_data: bool,
+                #[bits(3)]
+                _rsvdz2: u16,
+                #[bits(6)]
+                trb_type: u8,
+            },
+            control: u16 => {
+                #[bits(2)]
+                transfer_type: u8,
+                #[bits(14)]
+                _rsvdz: u16,
+            }
+        }
+    }
+
+    let setup = SetupStage::default()
+        .with_parameter0_bm_request_type(0b10000000)
+        .with_parameter0_b_ruquest(6)
+        .with_parameter0_w_value(0x0100)
+        .with_parameter1_w_index(0)
+        .with_parameter1_w_length(18)
+        .with_status_trb_transfer_length(8)
+        .with_control_transfer_type(3)
+        .with_remain_interrupt_on_completion(true)
+        .with_remain_immediate_data(true)
+        .with_remain_trb_type(2)
+        .with_remain_cycle_bit(true);
+
+    let expected = SetupStage {
+        parameter0: 0b00000001_00000000_00000110_10000000,
+        parameter1: 0x0012_0000,
+        status: 0x0000_0008,
+        remain: 0b00001000_01100001,
+        control: 0x0000_0003,
+    };
+
+    assert_eq!(setup, expected);
+}
