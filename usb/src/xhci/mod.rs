@@ -1,7 +1,6 @@
 pub mod context;
-mod descripter;
-mod device;
-mod doorbell;
+pub mod device;
+pub mod doorbell;
 pub mod driver;
 pub mod endian;
 pub mod error;

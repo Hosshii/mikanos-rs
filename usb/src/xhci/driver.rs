@@ -1,5 +1,4 @@
 use crate::xhci::{
-    device::HCP_ENDPOINT_ID,
     doorbell::HCDoorbell,
     register_map::Doorbell,
     trb::{AddressDeviceCommand, EnableSlotCommand},
@@ -7,7 +6,7 @@ use crate::xhci::{
 
 use super::{
     context::DeviceContext,
-    device::DeviceManager,
+    device::{Device, DeviceManager},
     error::{Error, Result},
     port::{PortConfigPhase, PortWrapper, PortsConfigPhase},
     register_map::{
@@ -444,15 +443,20 @@ impl<
         self.ports_config_phase.processing_port()
     }
 
+    pub fn devices_mut(&mut self) -> impl Iterator<Item = Pin<&mut Device>> {
+        unsafe {
+            let devices = self
+                .cx
+                .as_mut()
+                .get_unchecked_mut()
+                .device_manager
+                .devices_mut();
+            devices.map(|v| Pin::new_unchecked(v))
+        }
+    }
+
     pub fn process_primary_event(&mut self) -> Result<()> {
         let primary = self.runtime_registers.get_primary_interrupter_mut();
-
-        if let Some(d) = self.cx.device_manager.device(1) {
-            let desc = unsafe { d.read_descripter() };
-            if desc.usb_release != 0 {
-                debug!("{:?}", desc)
-            }
-        }
 
         let Some(event) = unsafe { self.cx.as_mut().get_unchecked_mut() }
             .primary_ring_mut()
@@ -597,18 +601,6 @@ impl<
                     }
                     self.ports_config_phase
                         .set_phase(port_id, PortConfigPhase::InitializingDevice);
-
-                    let port = port(
-                        &mut self.operational_registers,
-                        port_id,
-                        self.ports_config_phase
-                            .phases_mut()
-                            .index_mut(port_id as usize),
-                    );
-
-                    info!("doorbell. slot_id: {slot_id}, eid: {:?}", HCP_ENDPOINT_ID);
-                    let doorbell = self.doorbell_registers.slot(slot_id);
-                    dev.request_device_descripter(HCP_ENDPOINT_ID, doorbell);
                 }
             }
             x => debug!("issuer {:?}", x),

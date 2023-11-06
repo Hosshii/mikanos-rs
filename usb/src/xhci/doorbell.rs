@@ -2,17 +2,18 @@ use core::marker::PhantomData;
 
 use common::Zeroed;
 
-use super::{
-    device::EndpointID,
-    register_map::{Doorbell, DoorbellRegister},
-};
+use super::register_map::{Doorbell, DoorbellRegister};
 
 pub type HCDoorbell<'a, 'b> = DoorbellWrapper<'a, 'b, HostController>;
 pub type DCDoorbell<'a, 'b> = DoorbellWrapper<'a, 'b, DeviceContext>;
 
+#[derive(Debug)]
 pub struct HostController;
+
+#[derive(Debug)]
 pub struct DeviceContext;
 
+#[derive(Debug)]
 pub struct DoorbellWrapper<'a, 'b, T> {
     reg: &'a mut DoorbellRegister<'b>,
     _phantomdata: PhantomData<T>,
@@ -37,9 +38,9 @@ impl<'a, 'b> DoorbellWrapper<'a, 'b, HostController> {
 }
 
 impl<'a, 'b> DoorbellWrapper<'a, 'b, DeviceContext> {
-    pub fn notify_endpoint(&mut self, endpoint_id: EndpointID) {
+    pub fn notify_endpoint(&mut self, val: u8) {
         // info!("dci: {}", endpoint_id.dci());
-        self.ring(Doorbell::zeroed().with_data_db_target(endpoint_id.dci()));
+        self.ring(Doorbell::zeroed().with_data_db_target(val));
     }
 }
 

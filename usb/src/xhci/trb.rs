@@ -79,6 +79,17 @@ impl From<StatusStage> for TrbRaw {
     }
 }
 
+impl From<TransferEvent> for TrbRaw {
+    fn from(value: TransferEvent) -> Self {
+        Self::zeroed()
+            .with_parameter0(value.trb_pointer_lo)
+            .with_parameter1(value.trb_pointer_hi)
+            .with_status(value.status)
+            .with_remain(value.remain)
+            .with_control(value.control)
+    }
+}
+
 impl From<Link> for TrbRaw {
     fn from(_value: Link) -> Self {
         todo!()
@@ -407,6 +418,70 @@ impl TryFrom<TrbRaw> for StatusStage {
             Ok(Self {
                 _rsvdz1: value.parameter0,
                 _rsvdz2: value.parameter1,
+                status: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
+    #[endian = "little"]
+    pub struct TransferEvent {
+        trb_pointer_lo: u32,
+        trb_pointer_hi: u32,
+        status: u32 => {
+            #[bits(24)]
+            trb_transfer_length: u32,
+            #[bits(8)]
+            completion_code: CommandConpletionCode,
+        },
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(1)]
+            _rsvdz1: bool,
+            #[bits(1)]
+            event_data: bool,
+            #[bits(7)]
+            _rsvdz2: u8,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(5)]
+            endpoint_id: u8,
+            #[bits(3)]
+            _rsvdz: u8,
+            #[bits(8)]
+            slot_id: u8,
+        }
+    }
+}
+
+impl TransferEvent {
+    pub const TYPE: TrbType = TrbType::TransferEvent;
+}
+
+impl Type for TransferEvent {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for TransferEvent {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                trb_pointer_lo: value.parameter0,
+                trb_pointer_hi: value.parameter1,
                 status: value.status,
                 remain: value.remain,
                 control: value.control,

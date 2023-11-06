@@ -5,7 +5,7 @@ use super::{
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error(ErrorKind);
 
 impl Error {
@@ -54,7 +54,7 @@ impl Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
     LackOfDeviceContext,
     PortNotNewlyConnected,
