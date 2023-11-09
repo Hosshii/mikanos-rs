@@ -176,11 +176,11 @@ bitfield_struct! {
 const EP_CONTEXT_NUM: usize = 32;
 
 #[repr(C, align(64))]
-#[derive(Debug, Clone, PartialEq, Eq, Zeroed)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Zeroed)]
 pub struct InputContext {
-    input_control_context: InputControlContext,
-    slot: SlotContext,
-    ep_contexts: [EndpointContxt; EP_CONTEXT_NUM],
+    pub input_control_context: InputControlContext,
+    pub slot: SlotContext,
+    pub ep_contexts: [EndpointContxt; EP_CONTEXT_NUM],
 }
 
 impl InputContext {

@@ -11,8 +11,8 @@ use super::{
     ring::TCRing,
 };
 
-const DEFAULT_TRANSFER_RING_SIZE: usize = 32;
-const DEFAULT_TRANSFER_RING_NUM: usize = 16;
+pub const DEFAULT_TRANSFER_RING_SIZE: usize = 32;
+pub const DEFAULT_TRANSFER_RING_NUM: usize = 16;
 
 #[derive(Debug)]
 pub struct Device<
@@ -20,7 +20,7 @@ pub struct Device<
     const RING_NUM: usize = DEFAULT_TRANSFER_RING_NUM,
 > {
     slot_id: SlotId,
-    context: DeviceContext,
+    pub context: DeviceContext,
     input_context: InputContext,
     transfer_rings: [TCRing<RING_SIZE>; RING_NUM],
     _phantom_pinned: PhantomPinned,
@@ -65,6 +65,10 @@ impl<const RING_SIZE: usize, const RING_NUM: usize> Device<RING_SIZE, RING_NUM> 
     /// default controls pipe's transfer ring
     pub fn dcp_ring_mut(&mut self) -> &mut TCRing<RING_SIZE> {
         self.transfer_rings.index_mut(0)
+    }
+
+    pub fn slot_id(&self) -> u8 {
+        self.slot_id
     }
 }
 

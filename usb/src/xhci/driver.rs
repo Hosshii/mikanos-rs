@@ -66,6 +66,16 @@ impl<
     pub fn issue_command(&mut self, cmd: impl Into<TrbRaw> + Type + Copy) {
         self.command_ring.push(cmd)
     }
+
+    pub fn devices_mut(&mut self) -> impl Iterator<Item = Pin<&mut Device>> {
+        self.device_manager
+            .devices_mut()
+            .map(|v| unsafe { Pin::new_unchecked(v) })
+    }
+
+    pub fn command_ring(&self) -> &TCRing<CMD> {
+        &self.command_ring
+    }
 }
 
 impl<
@@ -109,23 +119,11 @@ pub struct Controller<
     capability_registers: CapabilityRegisters<'static>,
     operational_registers: OperationalRegisters<'static>,
     runtime_registers: RuntimeRegisters<'static>,
-    doorbell_registers: DoorbellRegisters<'static>,
+    pub doorbell_registers: DoorbellRegisters<'static>,
     ports_config_phase: PortsConfigPhase,
     // 配列のポインタが動かないようにしたい
     // 今の所move以外は大丈夫
-    cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEVICE_MANAGER_SIZE>>,
-}
-
-impl<
-        'a,
-        State,
-        const DEV: usize,
-        const CMD: usize,
-        const SEG_SIZE: usize,
-        const SEG_NUM: usize,
-        const TAB_SIZE: usize,
-    > Controller<'a, State, DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE>
-{
+    pub cx: Pin<&'a mut Context<DEV, CMD, SEG_SIZE, SEG_NUM, TAB_SIZE, DEVICE_MANAGER_SIZE>>,
 }
 
 impl<
@@ -455,7 +453,7 @@ impl<
         }
     }
 
-    pub fn process_primary_event(&mut self) -> Result<()> {
+    pub fn process_primary_event(&mut self) -> Result<Option<Trb>> {
         let primary = self.runtime_registers.get_primary_interrupter_mut();
 
         let Some(event) = unsafe { self.cx.as_mut().get_unchecked_mut() }
@@ -470,7 +468,7 @@ impl<
                     port.configure()?;
                 }
             }
-            return Ok(());
+            return Ok(None);
         };
 
         info!("process event");
@@ -483,16 +481,16 @@ impl<
             Trb::NoOp => todo!(),
             Trb::EnableSlotCommand(_) => todo!(),
             Trb::AddressDeviceCommand(_) => todo!(),
-            Trb::ConfigureEndpoint => todo!(),
+            Trb::ConfigureEndpointCommand(_) => todo!(),
             Trb::NoOpCommand => todo!(),
-            Trb::TransferEvent => todo!(),
-            Trb::CommandCompletionEvent(e) => self.process_command_completion_event(e),
-            Trb::PortStatusChangeEvent(e) => self.process_port_status_change_event(e),
+            Trb::TransferEvent(_) => (),
+            Trb::CommandCompletionEvent(e) => self.process_command_completion_event(e)?,
+            Trb::PortStatusChangeEvent(e) => self.process_port_status_change_event(e)?,
             Trb::Unknown(_) => {
                 debug!("process event. unknown trb: {:?}", event);
-                Ok(())
             }
         }
+        Ok(Some(event))
     }
 
     fn process_command_completion_event(&mut self, event: CommandCompletionEvent) -> Result<()> {
@@ -559,7 +557,7 @@ impl<
                     port.set_phase(PortConfigPhase::AddressingDevice);
                     let cmd =
                         AddressDeviceCommand::new(input_context as *mut _ as *mut u8, slot_id);
-                    cx.command_ring.push(cmd);
+                    cx.issue_command(cmd);
                     self.doorbell_registers
                         .host_controller_mut()
                         .notify_host_controller();

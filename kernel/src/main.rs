@@ -17,10 +17,13 @@ use kernel::{
     pci::{Device, Pci, PciExtUsb as _},
     println, KernelArg,
 };
-use usb::xhci::{
-    driver::{Context, Controller},
-    error::Error as UsbError,
-    port::PortConfigPhase,
+use usb::{
+    usbd::{driver::Driver, error::Error as UsbError},
+    xhci::{
+        driver::{Context, Controller},
+        error::Error as XhciError,
+        port::PortConfigPhase,
+    },
 };
 
 const MOUSE_CURSOR_HEIGHT: usize = 24;
@@ -156,25 +159,25 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     let xhci: Controller<_> = unsafe { Controller::new(bar, cx) };
 
     info!("initialize usb...");
-    let xhci = xhci.initialize()?;
-    info!("initialize finished!");
-    info!("run xhci");
-    let mut xhci = xhci.run();
+    let mut usb = Driver::new(xhci)?;
 
-    for mut port in xhci.ports_mut() {
-        debug!(
-            "port {}. is connected = {}",
-            port.number(),
-            port.is_connected()
-        );
-        if port.is_connected() {
-            port.set_phase(PortConfigPhase::WaitingAddressed)
+    for i in 0..1000 {
+        usb.process()?;
+    }
+    let slot_id = loop {
+        if let Some(slot_id) = usb.configure_device()? {
+            break slot_id;
+        }
+    };
+
+    for i in 0.. {
+        if i % 500 == 0 {
+            let pos = usb.get_mouse(slot_id)?;
+            info!("{:?}", pos);
         }
     }
 
-    loop {
-        xhci.process_primary_event()?;
-    }
+    loop {}
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -217,6 +220,12 @@ impl From<GraphicError> for Error {
     }
 }
 
+impl From<XhciError> for Error {
+    fn from(value: XhciError) -> Self {
+        Self(ErrorKind::Xhci(value))
+    }
+}
+
 impl From<UsbError> for Error {
     fn from(value: UsbError) -> Self {
         Self(ErrorKind::Usb(value))
@@ -227,7 +236,9 @@ impl From<UsbError> for Error {
 enum ErrorKind {
     Lib(LibError),
     Graphic(GraphicError),
+    Xhci(XhciError),
     Usb(UsbError),
+
     Custom(&'static str),
 }
 

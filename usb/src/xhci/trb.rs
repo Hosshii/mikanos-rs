@@ -118,6 +118,17 @@ impl From<AddressDeviceCommand> for TrbRaw {
     }
 }
 
+impl From<ConfigureEndpointCommand> for TrbRaw {
+    fn from(value: ConfigureEndpointCommand) -> Self {
+        Self::zeroed()
+            .with_parameter0(value.parameter0)
+            .with_parameter1(value.input_context_ptr_hi)
+            .with_status(value._rsvdz)
+            .with_remain(value.remain)
+            .with_control(value.control)
+    }
+}
+
 impl From<Trb> for TrbRaw {
     fn from(_value: Trb) -> Self {
         todo!()
@@ -221,7 +232,7 @@ bitfield_struct! {
             #[bits(8)]
             bm_request_type: u8,
             #[bits(8)]
-            b_ruquest: u8,
+            b_request: u8,
             #[bits(16)]
             w_value: u16,
         },
@@ -705,6 +716,66 @@ bitfield_struct! {
     #[repr(C, packed)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
     #[endian = "little"]
+    pub struct ConfigureEndpointCommand {
+        parameter0: u32 => {
+            #[bits(4)]
+            _rsvdz: u8,
+            #[bits(28)]
+            input_context_ptr_lo: u32,
+        },
+        input_context_ptr_hi: u32,
+        _rsvdz: u32,
+        remain: u16 => {
+            #[bits(1)]
+            cycle_bit: bool,
+            #[bits(8)]
+            _rsvdz: u8,
+            #[bits(1)]
+            deconfigure: bool,
+            #[bits(6)]
+            trb_type: TrbType,
+        },
+        control: u16 => {
+            #[bits(8)]
+            _rsvdz: u8,
+            #[bits(8)]
+            slot_id: u8,
+        }
+    }
+}
+
+impl ConfigureEndpointCommand {
+    pub const TYPE: TrbType = TrbType::ConfigureEndpoint;
+}
+
+impl Type for ConfigureEndpointCommand {
+    fn get_type(self) -> TrbType {
+        Self::TYPE
+    }
+}
+
+impl TryFrom<TrbRaw> for ConfigureEndpointCommand {
+    type Error = ();
+
+    fn try_from(value: TrbRaw) -> Result<Self, Self::Error> {
+        if matches!(value.get_remain_trb_type(), Self::TYPE) {
+            Ok(Self {
+                parameter0: value.parameter0,
+                input_context_ptr_hi: value.parameter1,
+                _rsvdz: value.status,
+                remain: value.remain,
+                control: value.control,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+bitfield_struct! {
+    #[repr(C, packed)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroed)]
+    #[endian = "little"]
     pub struct CommandCompletionEvent {
         params: u64 => {
             #[bits(4)]
@@ -882,9 +953,9 @@ pub enum Trb {
     NoOp,
     EnableSlotCommand(EnableSlotCommand),
     AddressDeviceCommand(AddressDeviceCommand),
-    ConfigureEndpoint,
+    ConfigureEndpointCommand(ConfigureEndpointCommand),
     NoOpCommand,
-    TransferEvent,
+    TransferEvent(TransferEvent),
     CommandCompletionEvent(CommandCompletionEvent),
     PortStatusChangeEvent(PortStatusChangeEvent),
     Unknown(u8),
@@ -892,31 +963,31 @@ pub enum Trb {
 
 impl From<TrbRaw> for Trb {
     fn from(value: TrbRaw) -> Self {
-        unsafe {
-            match value.get_remain_trb_type() {
-                TrbType::Normal => todo!(),
-                TrbType::SetupStage => todo!(),
-                TrbType::DataStage => todo!(),
-                TrbType::StatusStage => todo!(),
-                TrbType::Link => Self::Link(Link::try_from(value).unwrap_unchecked()),
-                TrbType::NoOp => todo!(),
-                TrbType::EnableSlotCommand => {
-                    Self::EnableSlotCommand(EnableSlotCommand::try_from(value).unwrap_unchecked())
-                }
-                TrbType::AddressDeviceCommand => Self::AddressDeviceCommand(
-                    AddressDeviceCommand::try_from(value).unwrap_unchecked(),
-                ),
-                TrbType::ConfigureEndpoint => todo!(),
-                TrbType::NoOpCommand => todo!(),
-                TrbType::TransferEvent => todo!(),
-                TrbType::CommandConpletionEvent => Self::CommandCompletionEvent(
-                    CommandCompletionEvent::try_from(value).unwrap_unchecked(),
-                ),
-                TrbType::PortStatusChangeEvent => Self::PortStatusChangeEvent(
-                    PortStatusChangeEvent::try_from(value).unwrap_unchecked(),
-                ),
-                TrbType::Unknown(x) => Trb::Unknown(x),
+        match value.get_remain_trb_type() {
+            TrbType::Normal => todo!(),
+            TrbType::SetupStage => todo!(),
+            TrbType::DataStage => todo!(),
+            TrbType::StatusStage => todo!(),
+            TrbType::Link => Self::Link(Link::try_from(value).unwrap()),
+            TrbType::NoOp => todo!(),
+            TrbType::EnableSlotCommand => {
+                Self::EnableSlotCommand(EnableSlotCommand::try_from(value).unwrap())
             }
+            TrbType::AddressDeviceCommand => {
+                Self::AddressDeviceCommand(AddressDeviceCommand::try_from(value).unwrap())
+            }
+            TrbType::ConfigureEndpoint => {
+                Self::ConfigureEndpointCommand(ConfigureEndpointCommand::try_from(value).unwrap())
+            }
+            TrbType::NoOpCommand => todo!(),
+            TrbType::TransferEvent => Self::TransferEvent(TransferEvent::try_from(value).unwrap()),
+            TrbType::CommandConpletionEvent => {
+                Self::CommandCompletionEvent(CommandCompletionEvent::try_from(value).unwrap())
+            }
+            TrbType::PortStatusChangeEvent => {
+                Self::PortStatusChangeEvent(PortStatusChangeEvent::try_from(value).unwrap())
+            }
+            TrbType::Unknown(x) => Trb::Unknown(x),
         }
     }
 }
@@ -932,9 +1003,9 @@ impl Type for Trb {
             Trb::NoOp => todo!(),
             Trb::EnableSlotCommand(_) => EnableSlotCommand::TYPE,
             Trb::AddressDeviceCommand(_) => AddressDeviceCommand::TYPE,
-            Trb::ConfigureEndpoint => todo!(),
+            Trb::ConfigureEndpointCommand(_) => ConfigureEndpointCommand::TYPE,
             Trb::NoOpCommand => todo!(),
-            Trb::TransferEvent => todo!(),
+            Trb::TransferEvent(_) => TransferEvent::TYPE,
             Trb::CommandCompletionEvent(_) => CommandCompletionEvent::TYPE,
             Trb::PortStatusChangeEvent(_) => PortStatusChangeEvent::TYPE,
             Trb::Unknown(x) => TrbType::Unknown(x),

@@ -1,4 +1,4 @@
 #![no_std]
 
-mod usbd;
+pub mod usbd;
 pub mod xhci;

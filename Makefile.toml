@@ -55,7 +55,7 @@ args = [
     "-drive", "if=pflash,file=${OVMF_VARS}",
     "-hda", "${DISK_IMG}",
     "-device", "nec-usb-xhci,id=xhci",
-    "-device", "usb-mouse", "-device", "usb-kbd",
+    "-device", "usb-mouse",
     "-monitor", "stdio"
 ]
 
@@ -66,7 +66,7 @@ args = [
     "-drive", "if=pflash,file=${OVMF_VARS}",
     "-hda", "${DISK_IMG}",
     "-device", "nec-usb-xhci,id=xhci",
-    "-device", "usb-mouse", "-device", "usb-kbd",
+    "-device", "usb-mouse",
     "-monitor", "stdio",
     "-s", "-S"
 ]
