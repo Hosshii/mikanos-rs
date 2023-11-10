@@ -47,7 +47,8 @@ impl<const SIZE: usize> TCRing<SIZE> {
         if self.ring_buf.tail() % SIZE == SIZE - 1 {
             let link = Link::new(self.ring_buf.as_ptr() as *const ())
                 .with_remain_toggle_cycle(true)
-                .with_remain_cycle_bit(self.cycle_bit);
+                .with_remain_cycle_bit(self.cycle_bit)
+                .with_remain_interrupt_on_completion(true);
             let base = TrbRaw::from(link);
             self.ring_buf.push_overwrite(base);
 
@@ -98,19 +99,17 @@ impl<const SIZE: usize> EventRing<SIZE> {
         }
 
         // forward erdp
-        let segment_begin = irs
+        let segment_table_addr = irs
             .event_ring_segment_table_base_address()
             .read()
             .get_data_ptr()
             << 6;
+        let segment_table_addr = segment_table_addr as *const EventRingSegmentTableEntry;
+        let segment_entry = unsafe { *segment_table_addr };
+        let segment_begin = segment_entry.get_ring_segment_base_address_data() << 6;
         let segment_begin = segment_begin as *mut TrbRaw;
-
-        let segment_size = irs
-            .event_ring_segment_table_size()
-            .read()
-            .get_data_event_ring_segment_table_size();
-
-        let segment_end = unsafe { segment_begin.add(segment_size as usize) };
+        let segment_size = segment_entry.get_ring_segment_size();
+        let segment_end = unsafe { segment_begin.add(segment_size as usize - 1) };
 
         if ptr == segment_end {
             self.cycle_bit = !self.cycle_bit;
@@ -156,7 +155,8 @@ bitfield_struct! {
             data: u16,
             #[bits(16)]
             _rsvdz: u16,
-        }
+        },
+        _rsvdz: u32,
     }
 }
 

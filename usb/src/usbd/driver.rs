@@ -253,6 +253,22 @@ impl<'a> Driver<'a> {
             .host_controller_mut()
             .notify_host_controller();
 
+        let e = loop {
+            if let Some(x) = self.xhcid.process_primary_event()? {
+                if let Trb::CommandCompletionEvent(e) = x {
+                    break e;
+                } else {
+                    info!("{:?}", x);
+                }
+            }
+        };
+
+        if !e.is_success() {
+            info!("{:?}", e.get_status_completion_code());
+        }
+
+        info!("{:?}", e);
+
         Ok(())
     }
 
@@ -280,6 +296,8 @@ impl<'a> Driver<'a> {
         let Trb::TransferEvent(e) = a else {
             return Err(Error::unexpected_trb(TrbType::TransferEvent, a));
         };
+
+        info!("{:?}", e);
 
         self.devices.get_mut(&slot_id).unwrap().1 = true;
 
@@ -310,7 +328,7 @@ impl<'a> Driver<'a> {
             return Err(Error::unexpected_trb(TrbType::TransferEvent, a));
         };
 
-        info!("{:?}", e.get_status_completion_code());
+        // info!("{:?}", e.get_status_completion_code());
         if !e.get_status_completion_code().is_success() {
             // todo!("{:?}", e.get_status_completion_code())
         }

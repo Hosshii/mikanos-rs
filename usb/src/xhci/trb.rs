@@ -91,8 +91,13 @@ impl From<TransferEvent> for TrbRaw {
 }
 
 impl From<Link> for TrbRaw {
-    fn from(_value: Link) -> Self {
-        todo!()
+    fn from(value: Link) -> Self {
+        Self::zeroed()
+            .with_parameter0(value.ring_segment_pointer_lo)
+            .with_parameter1(value.ring_segment_pointer_hi)
+            .with_status(value.status)
+            .with_remain(value.remain)
+            .with_control(value._rsvdz)
     }
 }
 
@@ -553,7 +558,7 @@ impl Link {
         Self::zeroed()
             .with_remain_trb_type(Self::TYPE)
             .with_ring_segment_pointer_hi(hi)
-            .with_ring_segment_pointer_lo_data(lo)
+            .with_ring_segment_pointer_lo_data(lo >> 4)
     }
 }
 

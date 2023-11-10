@@ -1,6 +1,6 @@
 use core::{marker::PhantomPinned, pin::Pin};
 
-use super::{descriptor::DeviceDescriptor, endpoint::EndpointID};
+use super::endpoint::EndpointID;
 use crate::{
     usbd::endpoint::HCP_ENDPOINT_ID,
     xhci::{
@@ -10,7 +10,7 @@ use crate::{
         trb::{DataStage, SetupStage, StatusStage},
     },
 };
-use common::{info, Zeroed};
+use common::{debug, Zeroed};
 
 pub const DEFAULT_BUF_SIZE: usize = 256;
 pub struct Device<'a, 'b, const BUF: usize = DEFAULT_BUF_SIZE> {
@@ -71,7 +71,7 @@ impl<'a, 'b, const BUF: usize> Device<'a, 'b, BUF> {
         // .with_remain_interrupt_on_completion(true);
 
         let transfer_ring = unsafe { self.ring_mut(endponint_id.dci()) };
-        info!(
+        debug!(
             "ring_ptr in request: {}",
             transfer_ring.as_mut_ptr() as usize
         );
@@ -112,7 +112,7 @@ impl<'a, 'b, const BUF: usize> Device<'a, 'b, BUF> {
         // .with_remain_interrupt_on_completion(true);
 
         let transfer_ring = unsafe { self.ring_mut(endponint_id.dci()) };
-        info!(
+        debug!(
             "ring_ptr in request: {}",
             transfer_ring.as_mut_ptr() as usize
         );
@@ -139,7 +139,7 @@ impl<'a, 'b, const BUF: usize> Device<'a, 'b, BUF> {
             .with_remain_immediate_data(true);
 
         let transfer_ring = unsafe { self.ring_mut(endponint_id.dci()) };
-        info!(
+        debug!(
             "ring_ptr in request: {}",
             transfer_ring.as_mut_ptr() as usize
         );
@@ -155,7 +155,7 @@ impl<'a, 'b, const BUF: usize> Device<'a, 'b, BUF> {
     ) {
         let buf_len = BUF;
         let setup = SetupStage::zeroed()
-            .with_parameter0_bm_request_type(0b1010001)
+            .with_parameter0_bm_request_type(0b10100001)
             .with_parameter0_b_request(1)
             .with_parameter0_w_value(0x0100)
             .with_parameter1_w_index(interface_num)
@@ -177,7 +177,7 @@ impl<'a, 'b, const BUF: usize> Device<'a, 'b, BUF> {
         let status = StatusStage::zeroed().with_control_direction(false);
 
         let transfer_ring = unsafe { self.ring_mut(endponint_id.dci()) };
-        info!(
+        debug!(
             "ring_ptr in request: {}",
             transfer_ring.as_mut_ptr() as usize
         );

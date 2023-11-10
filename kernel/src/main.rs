@@ -10,8 +10,8 @@ use common::{debug, info, Zeroed as _};
 use kernel::{
     error::Error as LibError,
     graphic::{
-        error::Error as GraphicError, pixel::FrameBufferInfo, Color, PixelPosition, PixelWriter,
-        RectWriter, StringWriter,
+        error::Error as GraphicError, mouse::MouseCursor, pixel::FrameBufferInfo, Color,
+        PixelPosition, PixelWriter, RectWriter, StringWriter,
     },
     logger,
     pci::{Device, Pci, PciExtUsb as _},
@@ -22,37 +22,8 @@ use usb::{
     xhci::{
         driver::{Context, Controller},
         error::Error as XhciError,
-        port::PortConfigPhase,
     },
 };
-
-const MOUSE_CURSOR_HEIGHT: usize = 24;
-const MOUSE_CURSOR_SHAPE: [&str; MOUSE_CURSOR_HEIGHT] = [
-    "@              ",
-    "@@             ",
-    "@.@            ",
-    "@..@           ",
-    "@...@          ",
-    "@....@         ",
-    "@.....@        ",
-    "@......@       ",
-    "@.......@      ",
-    "@........@     ",
-    "@.........@    ",
-    "@..........@   ",
-    "@...........@  ",
-    "@............@ ",
-    "@......@@@@@@@@",
-    "@......@       ",
-    "@....@@.@      ",
-    "@...@ @.@      ",
-    "@..@   @.@     ",
-    "@.@    @.@     ",
-    "@@      @.@    ",
-    "@       @.@    ",
-    "         @.@   ",
-    "         @@@   ",
-];
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -84,8 +55,8 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
 
     let mut console = kernel::console_mut();
 
-    for x in 0..console.graphic().info().horizontal_resolution() {
-        for y in 0..console.graphic().info().vertical_resolution() {
+    for x in 0..console.graphic_mut().info().horizontal_resolution() {
+        for y in 0..console.graphic_mut().info().vertical_resolution() {
             let pos = PixelPosition::new(x, y);
             console.write_pixel(pos, Color::WHITE)?;
         }
@@ -113,19 +84,8 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
     println!("1234567890");
     println!("hello {}", "world");
 
-    for (y, row) in MOUSE_CURSOR_SHAPE.iter().enumerate() {
-        for (x, c) in row.chars().enumerate() {
-            let pos = PixelPosition::new(200 + x as u32, 100 + y as u32);
-            if c == '@' {
-                kernel::console_mut().write_pixel(pos, Color::WHITE)?;
-            } else if c == '.' {
-                kernel::console_mut().write_pixel(pos, Color::BLACK)?;
-            }
-        }
-    }
-
     let per_line = kernel::console_mut()
-        .graphic()
+        .graphic_mut()
         .info()
         .pixels_per_scan_line();
 
@@ -170,14 +130,20 @@ fn kernel_main_impl(arg: KernelArg) -> Result<()> {
         }
     };
 
-    for i in 0.. {
-        if i % 500 == 0 {
-            let pos = usb.get_mouse(slot_id)?;
-            info!("{:?}", pos);
-        }
-    }
+    let mut mouse = MouseCursor::new();
+    loop {
+        let pos = usb.get_mouse(slot_id)?;
 
-    loop {}
+        {
+            let mut w = kernel::console_mut();
+            let mut w = w.graphic_mut();
+            mouse.erase(&mut w)?;
+
+            mouse.move_relative(pos[1] as i8, pos[2] as i8);
+            mouse.write(&mut w)?;
+        }
+        // info!("{:?}", pos);
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

@@ -84,7 +84,7 @@ where
         self.cursor_pos = FontPosition::new(0, 0);
     }
 
-    pub fn graphic(&mut self) -> &mut W {
+    pub fn graphic_mut(&mut self) -> &mut W {
         &mut self.writer
     }
 
@@ -150,11 +150,11 @@ where
     W: FontWriter,
 {
     fn write_pixel(&mut self, pos: PixelPosition, color: Color) -> Result<()> {
-        self.graphic().write_pixel(pos, color)
+        self.graphic_mut().write_pixel(pos, color)
     }
 
     unsafe fn write_pixel_unchecked(&mut self, pos: PixelPosition, color: Color) {
-        self.graphic().write_pixel_unchecked(pos, color)
+        self.graphic_mut().write_pixel_unchecked(pos, color)
     }
 }
 

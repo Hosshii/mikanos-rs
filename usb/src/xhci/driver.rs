@@ -655,6 +655,14 @@ impl<
                     enable_slot(&mut port, cmd_ring, &mut hc_doorbell)
                 }
             }
+            PortConfigPhase::NotConnected => {
+                let phase = self
+                    .ports_config_phase
+                    .phases_mut()
+                    .index_mut(port_num as usize);
+                *phase = PortConfigPhase::WaitingAddressed;
+                Ok(())
+            }
             x => {
                 debug!("process psce. port phase: {:?}", x);
                 Ok(())
