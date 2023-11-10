@@ -2,6 +2,7 @@ pub mod console;
 pub mod error;
 pub mod font;
 pub mod font_gen;
+pub mod mouse;
 pub mod pixel;
 
 use core::{

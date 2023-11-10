@@ -2,4 +2,4 @@
 
 pub mod elf;
 pub mod error;
-pub mod log;
+pub mod logger;

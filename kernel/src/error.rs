@@ -13,6 +13,10 @@ impl Error {
     pub fn too_many_devices() -> Error {
         Error(ErrorKind::TooManyDevices)
     }
+
+    pub fn out_of_range_bar() -> Error {
+        Error(ErrorKind::OutOfRangeBar)
+    }
 }
 
 impl From<GraphicError> for Error {
@@ -26,4 +30,5 @@ enum ErrorKind {
     InvalidAddr,
     TooManyDevices,
     Graphic(GraphicError),
+    OutOfRangeBar,
 }

@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 uefi = { path = "../uefi" }
 macros = { path = "../macros" }
-kernel = { path = "../kernel" }
+kernel = { path = "../kernel", default-features = false }
+common = { path = "../common" }

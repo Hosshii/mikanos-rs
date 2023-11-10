@@ -57,6 +57,11 @@ where
                 let pos = PixelPosition::new(0, (row * FONT_HEIGHT) as u32);
                 self.writer
                     .write_string(pos, string, self.font_color, self.font_bg_color)?;
+
+                // clear last line
+                if row == ROW - 2 {
+                    rhs[0] = [0; COL];
+                }
             }
         }
 
@@ -79,7 +84,7 @@ where
         self.cursor_pos = FontPosition::new(0, 0);
     }
 
-    pub fn graphic(&mut self) -> &mut W {
+    pub fn graphic_mut(&mut self) -> &mut W {
         &mut self.writer
     }
 
@@ -89,6 +94,10 @@ where
 
     pub const fn col_num(&self) -> usize {
         COL
+    }
+
+    pub fn is_last_col(&self) -> bool {
+        self.col_num() - 1 == self.cursor_pos.x as usize
     }
 }
 
@@ -100,6 +109,9 @@ where
         for c in s.chars() {
             if c == '\n' {
                 self.newline().map_err(|_| fmt::Error)?;
+            } else if self.is_last_col() {
+                self.newline().map_err(|_| fmt::Error)?;
+                self.write_char(c)?;
             } else if self.cursor_pos.x < COL as u32 {
                 let pos = PixelPosition::from(self.cursor_pos);
                 let font = font::get_font(c).ok_or(fmt::Error)?;
@@ -138,11 +150,11 @@ where
     W: FontWriter,
 {
     fn write_pixel(&mut self, pos: PixelPosition, color: Color) -> Result<()> {
-        self.graphic().write_pixel(pos, color)
+        self.graphic_mut().write_pixel(pos, color)
     }
 
     unsafe fn write_pixel_unchecked(&mut self, pos: PixelPosition, color: Color) {
-        self.graphic().write_pixel_unchecked(pos, color)
+        self.graphic_mut().write_pixel_unchecked(pos, color)
     }
 }
 

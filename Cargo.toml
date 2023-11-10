@@ -4,7 +4,9 @@ members = [
     "bootloader",
     "kernel",
     "uefi",
-    "macros"
+    "macros",
+    "usb",
+    "common",
 ]
 
 resolver = "2"
